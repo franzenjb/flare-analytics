@@ -50,24 +50,33 @@ export default function DepartmentIntel() {
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
-  // Top 20 for chart
-  const top20 = useMemo(() => {
+  // Exclude "Unknown" from charts (61K fires distorts all visuals)
+  const knownDepartments = useMemo(() => {
     if (!departments) return [];
-    return departments.slice(0, 20).map(d => ({
+    return departments.filter(d => d.name !== 'Unknown');
+  }, [departments]);
+
+  const unknownDept = useMemo(() => {
+    if (!departments) return null;
+    return departments.find(d => d.name === 'Unknown') || null;
+  }, [departments]);
+
+  // Top 20 for chart (excluding Unknown)
+  const top20 = useMemo(() => {
+    return knownDepartments.slice(0, 20).map(d => ({
       name: d.name.length > 25 ? d.name.slice(0, 25) + '...' : d.name,
       care: d.care,
       notification: d.notification,
       gap: d.gap,
     }));
-  }, [departments]);
+  }, [knownDepartments]);
 
-  // Scatter data: high-volume departments
+  // Scatter data: high-volume departments (excluding Unknown)
   const scatterData = useMemo(() => {
-    if (!departments) return [];
-    return departments
+    return knownDepartments
       .filter(d => d.total >= 20)
       .map(d => ({ name: d.name, total: d.total, careRate: d.careRate }));
-  }, [departments]);
+  }, [knownDepartments]);
 
   // Auto-generated insight
   const insight = useMemo(() => {
@@ -123,6 +132,14 @@ export default function DepartmentIntel() {
           {formatNumber(departments.length)} departments analyzed — {insight}
         </p>
       </div>
+
+      {/* Unknown department callout */}
+      {unknownDept && (
+        <div className="bg-white border-l-4 border-l-arc-caution rounded p-4 text-sm">
+          <strong>{formatNumber(unknownDept.total)} fires have no identified department</strong>
+          <span className="text-arc-gray-500"> — excluded from charts below to show actionable department-level patterns.</span>
+        </div>
+      )}
 
       {/* Top 20 chart */}
       <div className="bg-white rounded p-5 border border-arc-gray-100">

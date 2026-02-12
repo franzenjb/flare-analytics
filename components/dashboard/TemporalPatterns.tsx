@@ -133,6 +133,17 @@ function CalendarHeatmap({ data, mode }: { data: DailyData[]; mode: 'total' | 'g
           <p className="text-arc-red">Gap: {formatNumber(hovered.data.gap)}</p>
         </div>
       )}
+      {/* Color legend */}
+      <div className="flex items-center gap-2 mt-2 text-[10px] text-arc-gray-500">
+        <span>Less</span>
+        {(mode === 'gap'
+          ? ['#fdd5d9', '#f58b98', '#ED1B2E', '#c41e3a']
+          : ['#a3a3a3', '#737373', '#4a4a4a', '#2d2d2d']
+        ).map((color, i) => (
+          <span key={i} className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: color }} />
+        ))}
+        <span>More</span>
+      </div>
     </div>
   );
 }

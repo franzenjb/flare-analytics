@@ -78,15 +78,29 @@ function PriorityMatrix({ data }: { data: GapAnalysisData[] }) {
               const isCritical = payload.avgSvi >= medianSvi && payload.gapCount >= medianGap;
               const r = Math.max(6, Math.min(20, payload.totalFires / 400));
               return (
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r={r}
-                  fill={isCritical ? '#ED1B2E' : '#737373'}
-                  fillOpacity={0.7}
-                  stroke={isCritical ? '#c41e3a' : '#4a4a4a'}
-                  strokeWidth={1}
-                />
+                <g>
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={r}
+                    fill={isCritical ? '#ED1B2E' : '#737373'}
+                    fillOpacity={0.7}
+                    stroke={isCritical ? '#c41e3a' : '#4a4a4a'}
+                    strokeWidth={1}
+                  />
+                  {(isCritical || payload.totalFires >= 3000) && (
+                    <text
+                      x={cx}
+                      y={cy - r - 4}
+                      textAnchor="middle"
+                      fontSize={9}
+                      fontWeight={700}
+                      fill="#1a1a1a"
+                    >
+                      {payload.state}
+                    </text>
+                  )}
+                </g>
               );
             }}
           />

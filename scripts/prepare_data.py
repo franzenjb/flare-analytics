@@ -1,0 +1,434 @@
+"""
+FLARE Analytics Data Pipeline
+Processes Match Map.xlsx (103,400 fire events) into optimized JSON files for the dashboard.
+"""
+
+import openpyxl
+import json
+import os
+from collections import defaultdict
+from datetime import datetime
+
+INPUT_FILE = os.path.expanduser("~/Desktop/FlareData/Match Map.xlsx")
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public", "data")
+
+# Master Label mapping to short keys
+LABEL_MAP = {
+    "Fire with RC Care": "care",
+    "Fire with RC Notification": "notification",
+    "Fire without RC Notification": "gap",
+}
+
+
+def parse_date(val):
+    """Parse date from Excel datetime or string."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val
+    try:
+        return datetime.strptime(str(val).strip(), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        try:
+            return datetime.strptime(str(val).strip(), "%m/%d/%Y")
+        except ValueError:
+            return None
+
+
+def parse_float(val):
+    """Safely parse a float value."""
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
+import re
+
+# US zip code prefix (first 3 digits) to state mapping
+ZIP_PREFIX_TO_STATE = {}
+_zip_ranges = [
+    ("005","009","PR"),("010","027","MA"),("028","029","RI"),("030","038","NH"),
+    ("039","049","ME"),("050","059","VT"),("060","069","CT"),("070","089","NJ"),
+    ("090","099","AE"),("100","149","NY"),("150","196","PA"),("197","199","DE"),
+    ("200","205","DC"),("206","219","MD"),("220","246","VA"),("247","268","WV"),
+    ("270","289","NC"),("290","299","SC"),("300","319","GA"),("320","349","FL"),
+    ("350","369","AL"),("370","385","TN"),("386","397","MS"),("398","399","GA"),
+    ("400","427","KY"),("430","459","OH"),("460","479","IN"),("480","499","MI"),
+    ("500","528","IA"),("530","549","WI"),("550","567","MN"),("570","577","SD"),
+    ("580","588","ND"),("590","599","MT"),("600","629","IL"),("630","658","MO"),
+    ("660","679","KS"),("680","693","NE"),("700","714","LA"),("716","729","AR"),
+    ("730","749","OK"),("750","799","TX"),("800","816","CO"),("820","831","WY"),
+    ("832","838","ID"),("840","847","UT"),("850","865","AZ"),("870","884","NM"),
+    ("889","898","NV"),("900","966","CA"),("967","968","HI"),("970","979","OR"),
+    ("980","994","WA"),("995","999","AK"),("006","009","PR"),("008","008","VI"),
+    ("969","969","GU"),
+]
+for start, end, state in _zip_ranges:
+    for prefix in range(int(start), int(end) + 1):
+        ZIP_PREFIX_TO_STATE[f"{prefix:03d}"] = state
+
+
+def extract_state(address):
+    """Extract state from address using zip code prefix mapping."""
+    if not address:
+        return None
+    addr = str(address).strip()
+
+    # Try to find a 5-digit zip code in the address
+    zips = re.findall(r'\b(\d{5})\b', addr)
+    if zips:
+        # Use the last zip code found (most likely the address zip)
+        prefix = zips[-1][:3]
+        state = ZIP_PREFIX_TO_STATE.get(prefix)
+        if state:
+            return state
+
+    # Fallback: try to find state abbreviation or name
+    us_states = {
+        "ALABAMA": "AL", "ALASKA": "AK", "ARIZONA": "AZ", "ARKANSAS": "AR",
+        "CALIFORNIA": "CA", "COLORADO": "CO", "CONNECTICUT": "CT", "DELAWARE": "DE",
+        "FLORIDA": "FL", "GEORGIA": "GA", "HAWAII": "HI", "IDAHO": "ID",
+        "ILLINOIS": "IL", "INDIANA": "IN", "IOWA": "IA", "KANSAS": "KS",
+        "KENTUCKY": "KY", "LOUISIANA": "LA", "MAINE": "ME", "MARYLAND": "MD",
+        "MASSACHUSETTS": "MA", "MICHIGAN": "MI", "MINNESOTA": "MN", "MISSISSIPPI": "MS",
+        "MISSOURI": "MO", "MONTANA": "MT", "NEBRASKA": "NE", "NEVADA": "NV",
+        "NEW HAMPSHIRE": "NH", "NEW JERSEY": "NJ", "NEW MEXICO": "NM", "NEW YORK": "NY",
+        "NORTH CAROLINA": "NC", "NORTH DAKOTA": "ND", "OHIO": "OH", "OKLAHOMA": "OK",
+        "OREGON": "OR", "PENNSYLVANIA": "PA", "RHODE ISLAND": "RI", "SOUTH CAROLINA": "SC",
+        "SOUTH DAKOTA": "SD", "TENNESSEE": "TN", "TEXAS": "TX", "UTAH": "UT",
+        "VERMONT": "VT", "VIRGINIA": "VA", "WASHINGTON": "WA", "WEST VIRGINIA": "WV",
+        "WISCONSIN": "WI", "WYOMING": "WY", "DISTRICT OF COLUMBIA": "DC",
+        "PUERTO RICO": "PR", "GUAM": "GU", "VIRGIN ISLANDS": "VI",
+    }
+    addr_upper = addr.upper()
+    for name, abbr in us_states.items():
+        if name in addr_upper:
+            return abbr
+
+    return None
+
+
+def main():
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    print(f"Loading {INPUT_FILE}...")
+    wb = openpyxl.load_workbook(INPUT_FILE, read_only=True, data_only=True)
+    ws = wb.active
+
+    rows = ws.iter_rows(values_only=True)
+
+    # Skip metadata rows (row 1 = filter text, row 2 = blank)
+    next(rows)  # row 1 metadata
+    next(rows)  # row 2 blank
+
+    # Row 3 = actual headers
+    header = next(rows)
+    print(f"Columns: {[str(h) for h in header]}")
+
+    # Column indices
+    COL = {
+        "date": 0,
+        "address": 1,
+        "nfirs_addr": 2,
+        "rc_respond_addr": 3,
+        "rc_care_addr": 4,
+        "department": 5,
+        "agency_reported": 6,
+        "calls_received": 7,
+        "svi_risk": 8,
+        "master_label": 9,
+        "lat": 10,
+        "lon": 11,
+    }
+
+    # Accumulators
+    points_lat = []
+    points_lon = []
+    points_cat = []  # 0=care, 1=notification, 2=gap
+    points_svi = []
+    points_month = []
+
+    totals = {"care": 0, "notification": 0, "gap": 0, "total": 0}
+    svi_sum = 0.0
+    svi_count = 0
+
+    monthly = defaultdict(lambda: {"care": 0, "notification": 0, "gap": 0, "total": 0})
+    daily = defaultdict(lambda: {"care": 0, "notification": 0, "gap": 0, "total": 0})
+    by_state = defaultdict(lambda: {
+        "care": 0, "notification": 0, "gap": 0, "total": 0,
+        "svi_sum": 0.0, "svi_count": 0,
+        "monthly": defaultdict(lambda: {"care": 0, "notification": 0, "gap": 0, "total": 0}),
+    })
+    by_dept = defaultdict(lambda: {
+        "care": 0, "notification": 0, "gap": 0, "total": 0,
+        "svi_sum": 0.0, "svi_count": 0,
+    })
+
+    # SVI histogram bins (0.0-0.1, 0.1-0.2, ..., 0.9-1.0)
+    svi_bins_total = [0] * 10
+    svi_bins_gap = [0] * 10
+
+    # Funnel stages
+    funnel = {"total": 0, "nfirs_match": 0, "rc_notified": 0, "rc_care": 0}
+
+    skipped = 0
+    processed = 0
+
+    print("Processing rows...")
+    for row in rows:
+        label_raw = row[COL["master_label"]]
+        if not label_raw:
+            skipped += 1
+            continue
+
+        label = LABEL_MAP.get(str(label_raw).strip())
+        if not label:
+            skipped += 1
+            continue
+
+        lat = parse_float(row[COL["lat"]])
+        lon = parse_float(row[COL["lon"]])
+        if lat is None or lon is None:
+            skipped += 1
+            continue
+
+        # Skip extreme outliers (territories far from CONUS for main rendering)
+        date = parse_date(row[COL["date"]])
+        svi = parse_float(row[COL["svi_risk"]])
+        dept = str(row[COL["department"]]).strip() if row[COL["department"]] else "Unknown"
+        address = str(row[COL["address"]]) if row[COL["address"]] else ""
+
+        state = extract_state(address)
+
+        # Category index for compact storage
+        cat_idx = {"care": 0, "notification": 1, "gap": 2}[label]
+
+        # Points for deck.gl (flat arrays for minimal JSON size)
+        points_lat.append(round(lat, 4))
+        points_lon.append(round(lon, 4))
+        points_cat.append(cat_idx)
+        points_svi.append(round(svi, 3) if svi is not None else 0)
+        points_month.append(date.month if date else 0)
+
+        # Totals
+        totals[label] += 1
+        totals["total"] += 1
+
+        if svi is not None:
+            svi_sum += svi
+            svi_count += 1
+
+            # SVI histogram
+            bin_idx = min(int(svi * 10), 9)
+            svi_bins_total[bin_idx] += 1
+            if label == "gap":
+                svi_bins_gap[bin_idx] += 1
+
+        # Monthly
+        if date:
+            month_key = date.strftime("%Y-%m")
+            monthly[month_key][label] += 1
+            monthly[month_key]["total"] += 1
+
+            # Daily
+            day_key = date.strftime("%Y-%m-%d")
+            daily[day_key][label] += 1
+            daily[day_key]["total"] += 1
+
+        # By state
+        if state:
+            by_state[state][label] += 1
+            by_state[state]["total"] += 1
+            if svi is not None:
+                by_state[state]["svi_sum"] += svi
+                by_state[state]["svi_count"] += 1
+            if date:
+                m = date.strftime("%Y-%m")
+                by_state[state]["monthly"][m][label] += 1
+                by_state[state]["monthly"][m]["total"] += 1
+
+        # By department
+        by_dept[dept][label] += 1
+        by_dept[dept]["total"] += 1
+        if svi is not None:
+            by_dept[dept]["svi_sum"] += svi
+            by_dept[dept]["svi_count"] += 1
+
+        # Funnel
+        funnel["total"] += 1
+        if row[COL["nfirs_addr"]]:
+            funnel["nfirs_match"] += 1
+        if label in ("care", "notification"):
+            funnel["rc_notified"] += 1
+        if label == "care":
+            funnel["rc_care"] += 1
+
+        processed += 1
+        if processed % 20000 == 0:
+            print(f"  Processed {processed:,} rows...")
+
+    wb.close()
+    print(f"\nProcessed: {processed:,} | Skipped: {skipped}")
+    print(f"Totals: {totals}")
+
+    # === Write JSON files ===
+
+    # 1. fires-points.json (flat arrays for deck.gl)
+    points_data = {
+        "lat": points_lat,
+        "lon": points_lon,
+        "cat": points_cat,
+        "svi": points_svi,
+        "month": points_month,
+        "count": len(points_lat),
+    }
+    write_json("fires-points.json", points_data)
+
+    # 2. summary.json
+    avg_svi = round(svi_sum / svi_count, 3) if svi_count > 0 else 0
+    summary = {
+        "totalFires": totals["total"],
+        "rcCare": totals["care"],
+        "rcNotification": totals["notification"],
+        "noNotification": totals["gap"],
+        "careRate": round(totals["care"] / totals["total"] * 100, 1) if totals["total"] > 0 else 0,
+        "gapRate": round(totals["gap"] / totals["total"] * 100, 1) if totals["total"] > 0 else 0,
+        "avgSviRisk": avg_svi,
+        "uniqueDepartments": len(by_dept),
+        "statesCovered": len(by_state),
+    }
+    write_json("summary.json", summary)
+
+    # 3. funnel.json
+    funnel_data = {
+        "stages": [
+            {"label": "Total Fire Events", "value": funnel["total"], "color": "#737373"},
+            {"label": "NFIRS Match", "value": funnel["nfirs_match"], "color": "#4a4a4a"},
+            {"label": "RC Notified", "value": funnel["rc_notified"], "color": "#2d5a27"},
+            {"label": "RC Care Provided", "value": funnel["rc_care"], "color": "#ED1B2E"},
+        ]
+    }
+    write_json("funnel.json", funnel_data)
+
+    # 4. by-state.json
+    states_out = []
+    for state_code, data in sorted(by_state.items(), key=lambda x: -x[1]["total"]):
+        avg = round(data["svi_sum"] / data["svi_count"], 3) if data["svi_count"] > 0 else 0
+        gap_rate = round(data["gap"] / data["total"] * 100, 1) if data["total"] > 0 else 0
+        care_rate = round(data["care"] / data["total"] * 100, 1) if data["total"] > 0 else 0
+        monthly_sorted = []
+        for m in sorted(data["monthly"].keys()):
+            md = data["monthly"][m]
+            monthly_sorted.append({
+                "month": m,
+                "care": md["care"],
+                "notification": md["notification"],
+                "gap": md["gap"],
+                "total": md["total"],
+            })
+        states_out.append({
+            "state": state_code,
+            "total": data["total"],
+            "care": data["care"],
+            "notification": data["notification"],
+            "gap": data["gap"],
+            "careRate": care_rate,
+            "gapRate": gap_rate,
+            "avgSvi": avg,
+            "monthly": monthly_sorted,
+        })
+    write_json("by-state.json", states_out)
+
+    # 5. by-month.json
+    months_out = []
+    for m in sorted(monthly.keys()):
+        md = monthly[m]
+        months_out.append({
+            "month": m,
+            "care": md["care"],
+            "notification": md["notification"],
+            "gap": md["gap"],
+            "total": md["total"],
+        })
+    write_json("by-month.json", months_out)
+
+    # 6. by-day.json
+    days_out = []
+    for d in sorted(daily.keys()):
+        dd = daily[d]
+        days_out.append({
+            "date": d,
+            "care": dd["care"],
+            "notification": dd["notification"],
+            "gap": dd["gap"],
+            "total": dd["total"],
+        })
+    write_json("by-day.json", days_out)
+
+    # 7. by-department.json
+    depts_out = []
+    for dept_name, data in sorted(by_dept.items(), key=lambda x: -x[1]["total"]):
+        avg = round(data["svi_sum"] / data["svi_count"], 3) if data["svi_count"] > 0 else 0
+        gap_rate = round(data["gap"] / data["total"] * 100, 1) if data["total"] > 0 else 0
+        care_rate = round(data["care"] / data["total"] * 100, 1) if data["total"] > 0 else 0
+        gap_score = round(data["gap"] * avg, 1)
+        depts_out.append({
+            "name": dept_name,
+            "total": data["total"],
+            "care": data["care"],
+            "notification": data["notification"],
+            "gap": data["gap"],
+            "careRate": care_rate,
+            "gapRate": gap_rate,
+            "avgSvi": avg,
+            "gapScore": gap_score,
+        })
+    write_json("by-department.json", depts_out)
+
+    # 8. gap-analysis.json (by state, sorted by opportunity score)
+    gap_out = []
+    for state_code, data in by_state.items():
+        if data["gap"] == 0:
+            continue
+        avg = round(data["svi_sum"] / data["svi_count"], 3) if data["svi_count"] > 0 else 0
+        opp_score = round(data["gap"] * avg, 1)
+        gap_out.append({
+            "state": state_code,
+            "gapCount": data["gap"],
+            "totalFires": data["total"],
+            "avgSvi": avg,
+            "opportunityScore": opp_score,
+            "gapRate": round(data["gap"] / data["total"] * 100, 1) if data["total"] > 0 else 0,
+            "careRate": round(data["care"] / data["total"] * 100, 1) if data["total"] > 0 else 0,
+        })
+    gap_out.sort(key=lambda x: -x["opportunityScore"])
+    write_json("gap-analysis.json", gap_out)
+
+    # 9. risk-distribution.json
+    risk_dist = {
+        "bins": [f"{i/10:.1f}-{(i+1)/10:.1f}" for i in range(10)],
+        "total": svi_bins_total,
+        "gap": svi_bins_gap,
+    }
+    write_json("risk-distribution.json", risk_dist)
+
+    print(f"\nAll JSON files written to {OUTPUT_DIR}/")
+    for f in os.listdir(OUTPUT_DIR):
+        if f.endswith(".json"):
+            size = os.path.getsize(os.path.join(OUTPUT_DIR, f))
+            print(f"  {f}: {size:,} bytes")
+
+
+def write_json(filename, data):
+    """Write JSON file to output directory."""
+    path = os.path.join(OUTPUT_DIR, filename)
+    with open(path, "w") as f:
+        json.dump(data, f, separators=(",", ":"))
+    print(f"  Wrote {filename}")
+
+
+if __name__ == "__main__":
+    main()

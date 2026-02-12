@@ -1,65 +1,122 @@
-import Image from "next/image";
+'use client';
+
+import { useState, lazy, Suspense } from 'react';
+import type { TabId } from '@/lib/types';
+import {
+  LayoutDashboard,
+  Map,
+  AlertTriangle,
+  Calendar,
+  Building2,
+  Globe,
+} from 'lucide-react';
+
+const ExecutiveDashboard = lazy(() => import('@/components/dashboard/ExecutiveDashboard'));
+const MapExplorer = lazy(() => import('@/components/dashboard/MapExplorer'));
+const GapAnalysis = lazy(() => import('@/components/dashboard/GapAnalysis'));
+const TemporalPatterns = lazy(() => import('@/components/dashboard/TemporalPatterns'));
+const DepartmentIntel = lazy(() => import('@/components/dashboard/DepartmentIntel'));
+const RegionalDeepDive = lazy(() => import('@/components/dashboard/RegionalDeepDive'));
+
+const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
+  { id: 'executive', label: 'Executive', icon: LayoutDashboard },
+  { id: 'map', label: 'Map Explorer', icon: Map },
+  { id: 'gap', label: 'Gap Analysis', icon: AlertTriangle },
+  { id: 'temporal', label: 'Temporal', icon: Calendar },
+  { id: 'departments', label: 'Departments', icon: Building2 },
+  { id: 'regional', label: 'Regional', icon: Globe },
+];
+
+function TabSkeleton() {
+  return (
+    <div className="animate-pulse p-8">
+      <div className="h-8 bg-arc-gray-100 rounded w-64 mb-6" />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="h-28 bg-arc-gray-100 rounded" />
+        ))}
+      </div>
+      <div className="h-64 bg-arc-gray-100 rounded" />
+    </div>
+  );
+}
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState<TabId>('executive');
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="min-h-screen bg-arc-cream">
+      {/* Header */}
+      <header className="bg-white border-b-[3px] border-arc-black">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 flex items-center justify-center">
+                <svg viewBox="0 0 32 32" className="w-7 h-7">
+                  <rect x="12" y="4" width="8" height="24" fill="#ED1B2E" />
+                  <rect x="4" y="12" width="24" height="8" fill="#ED1B2E" />
+                </svg>
+              </div>
+              <div>
+                <h1 className="font-[family-name:var(--font-headline)] text-lg font-bold text-arc-black leading-tight">
+                  FLARE Analytics
+                </h1>
+                <p className="text-xs text-arc-gray-500 leading-tight">
+                  Fire Loss Analysis &amp; Response Evaluation — 2024
+                </p>
+              </div>
+            </div>
+            <div className="hidden sm:block text-right">
+              <span className="font-[family-name:var(--font-data)] text-xs text-arc-gray-500">
+                103,400 fire events
+              </span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Tab Navigation */}
+      <nav className="bg-white border-b border-arc-gray-100 sticky top-0 z-50">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex gap-0 overflow-x-auto">
+            {TABS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  activeTab === id
+                    ? 'border-arc-red text-arc-black'
+                    : 'border-transparent text-arc-gray-500 hover:text-arc-gray-700 hover:border-arc-gray-300'
+                }`}
+              >
+                <Icon size={16} />
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </nav>
+
+      {/* Tab Content */}
+      <main className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <Suspense fallback={<TabSkeleton />}>
+          {activeTab === 'executive' && <ExecutiveDashboard />}
+          {activeTab === 'map' && <MapExplorer />}
+          {activeTab === 'gap' && <GapAnalysis />}
+          {activeTab === 'temporal' && <TemporalPatterns />}
+          {activeTab === 'departments' && <DepartmentIntel />}
+          {activeTab === 'regional' && <RegionalDeepDive />}
+        </Suspense>
+      </main>
+
+      {/* Footer */}
+      <footer className="border-t border-arc-gray-100 bg-white mt-8">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <p className="text-xs text-arc-gray-500 text-center">
+            American Red Cross — FLARE Analytics — Data through December 2024
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </footer>
     </div>
   );
 }

@@ -1,26 +1,56 @@
 @import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Red Cross Brand Colors */
+  --arc-red: #ED1B2E;
+  --arc-black: #1a1a1a;
+  --arc-gray-900: #2d2d2d;
+  --arc-gray-700: #4a4a4a;
+  --arc-gray-500: #737373;
+  --arc-gray-300: #a3a3a3;
+  --arc-gray-100: #e5e5e5;
+  --arc-cream: #f7f5f2;
+  --arc-white: #ffffff;
+
+  /* Functional Colors */
+  --arc-alert: #c41e3a;
+  --arc-success: #2d5a27;
+  --arc-caution: #b8860b;
+  --arc-info: #1e4a6d;
+
+  --background: var(--arc-cream);
+  --foreground: var(--arc-black);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-arc-red: #ED1B2E;
+  --color-arc-black: #1a1a1a;
+  --color-arc-gray-900: #2d2d2d;
+  --color-arc-gray-700: #4a4a4a;
+  --color-arc-gray-500: #737373;
+  --color-arc-gray-300: #a3a3a3;
+  --color-arc-gray-100: #e5e5e5;
+  --color-arc-cream: #f7f5f2;
+  --color-arc-success: #2d5a27;
+  --color-arc-caution: #b8860b;
+  --color-arc-info: #1e4a6d;
+  --color-arc-alert: #c41e3a;
+  --font-headline: var(--font-headline);
+  --font-body: var(--font-body);
+  --font-data: var(--font-data);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body), 'Source Sans Pro', 'Helvetica Neue', sans-serif;
 }
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--arc-cream); }
+::-webkit-scrollbar-thumb { background: var(--arc-gray-300); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--arc-gray-500); }

@@ -13,10 +13,10 @@ import type { GapAnalysisData, SummaryData, RiskDistributionData } from '@/lib/t
 function PriorityMatrix({ data }: { data: GapAnalysisData[] }) {
   // Median values for quadrant lines
   const medianSvi = data.length > 0
-    ? data.sort((a, b) => a.avgSvi - b.avgSvi)[Math.floor(data.length / 2)].avgSvi
+    ? [...data].sort((a, b) => a.avgSvi - b.avgSvi)[Math.floor(data.length / 2)].avgSvi
     : 0.5;
   const medianGap = data.length > 0
-    ? data.sort((a, b) => a.gapCount - b.gapCount)[Math.floor(data.length / 2)].gapCount
+    ? [...data].sort((a, b) => a.gapCount - b.gapCount)[Math.floor(data.length / 2)].gapCount
     : 500;
 
   return (

@@ -113,48 +113,41 @@ function MonthlyTrend({ data }: { data: { month: string; care: number; notificat
   );
 }
 
-function EngagementFunnel({ total, care, notification, gap }: { total: number; care: number; notification: number; gap: number }) {
+function EngagementBreakdown({ total, care, notification, gap }: { total: number; care: number; notification: number; gap: number }) {
   const stages = [
-    { label: 'Total Fires', value: total, color: '#737373' },
     { label: 'RC Care', value: care, color: CATEGORY_COLORS.care },
-    { label: 'RC Notification', value: notification, color: CATEGORY_COLORS.notification },
-    { label: 'No Notification', value: gap, color: CATEGORY_COLORS.gap },
+    { label: 'RC Notification Only', value: notification, color: CATEGORY_COLORS.notification },
+    { label: 'No Notification (Gap)', value: gap, color: CATEGORY_COLORS.gap },
   ];
-  const maxVal = stages[0].value || 1;
-  const svgWidth = 500;
-  const svgHeight = stages.length * 70 + 10;
-  const maxTrapWidth = svgWidth - 160;
-  const trapX = 140;
+  const maxVal = total || 1;
 
   return (
     <div className="bg-white rounded p-5 border border-arc-gray-100">
-      <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black mb-4">
-        Engagement Pipeline
+      <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black mb-1">
+        Response Breakdown
       </h3>
-      <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full" style={{ maxHeight: 320 }}>
-        {stages.map((stage, i) => {
-          const pct = stage.value / maxVal;
-          const nextPct = i < stages.length - 1 ? stages[i + 1].value / maxVal : pct * 0.8;
-          const topWidth = pct * maxTrapWidth;
-          const bottomWidth = nextPct * maxTrapWidth;
-          const y = i * 70 + 5;
-          const h = 50;
-          const centerX = trapX + maxTrapWidth / 2;
-
+      <p className="text-sm text-arc-gray-500 mb-5">{formatNumber(total)} total fires</p>
+      <div className="space-y-4">
+        {stages.map((stage) => {
+          const pct = (stage.value / maxVal) * 100;
           return (
-            <g key={stage.label}>
-              <path
-                d={`M ${centerX - topWidth / 2} ${y} L ${centerX + topWidth / 2} ${y} L ${centerX + bottomWidth / 2} ${y + h} L ${centerX - bottomWidth / 2} ${y + h} Z`}
-                fill={stage.color}
-                opacity={0.85}
-              />
-              <text x={0} y={y + h / 2 + 1} fontSize={11} fill="#4a4a4a" dominantBaseline="middle">{stage.label}</text>
-              <text x={centerX} y={y + h / 2 - 4} textAnchor="middle" fontSize={12} fontWeight={600} fill="#ffffff" dominantBaseline="middle" fontFamily="var(--font-data)">{formatNumber(stage.value)}</text>
-              <text x={centerX} y={y + h / 2 + 10} textAnchor="middle" fontSize={10} fill="rgba(255,255,255,0.8)" dominantBaseline="middle" fontFamily="var(--font-data)">{(pct * 100).toFixed(0)}%</text>
-            </g>
+            <div key={stage.label}>
+              <div className="flex justify-between items-baseline mb-1">
+                <span className="text-sm text-arc-black">{stage.label}</span>
+                <span className="text-sm font-[family-name:var(--font-data)] font-semibold text-arc-black">
+                  {formatNumber(stage.value)} <span className="text-arc-gray-400 font-normal">({pct.toFixed(0)}%)</span>
+                </span>
+              </div>
+              <div className="h-5 bg-arc-gray-100 rounded overflow-hidden">
+                <div
+                  className="h-full rounded"
+                  style={{ width: `${pct}%`, backgroundColor: stage.color }}
+                />
+              </div>
+            </div>
           );
         })}
-      </svg>
+      </div>
     </div>
   );
 }
@@ -287,7 +280,7 @@ export default function DashboardTab() {
 
       {/* Funnel + Monthly Trend */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <EngagementFunnel total={fn.total} care={fn.care} notification={fn.notification} gap={fn.gap} />
+        <EngagementBreakdown total={fn.total} care={fn.care} notification={fn.notification} gap={fn.gap} />
         <MonthlyTrend data={fn.monthly} />
       </div>
 

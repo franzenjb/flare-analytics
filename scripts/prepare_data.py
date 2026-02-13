@@ -5,6 +5,14 @@ Enriches each event with Red Cross organizational hierarchy (Chapter/Region/Divi
   - ZIP code → county FIPS (from comprehensive ZIP lookup CSV)
   - County FIPS → Chapter/Region/Division (from ARC Master Geography FY2026)
   - County FIPS → State (from FIPS prefix, not address parsing)
+
+NOTE (Feb 2026): Puerto Rico fires were missing from the dashboard because the ARC Master
+Geography only had a single catch-all FIPS (72998) for PR. We added all 78 PR municipio
+FIPS codes (72001-72153) to arc_county_chapter_mapping.json, all pointing to "ARC of Puerto
+Rico" / "Puerto Rico Region" / "Southeast and Caribbean Division". This brought in 577 PR
+fires across 72 municipios. When updating arc_county_chapter_mapping.json from the ARC
+feature service in the future, make sure PR municipio entries are preserved — the service
+only returns the 72998 rollup, not individual municipios.
 """
 
 import openpyxl

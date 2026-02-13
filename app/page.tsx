@@ -11,6 +11,7 @@ import {
   Table2,
   Map,
   TrendingUp,
+  MessageSquare,
 } from 'lucide-react';
 
 const DashboardTab = lazy(() => import('@/components/dashboard/DashboardTab'));
@@ -116,9 +117,16 @@ function Dashboard() {
               </div>
             </div>
             <div className="hidden sm:flex items-center gap-4">
-              <span className="font-[family-name:var(--font-data)] text-xs text-arc-gray-500">
+              <span className="font-[family-name:var(--font-data)] text-base font-bold text-arc-black">
                 {filteredNational.total.toLocaleString()} fires · {filteredNational.countyCount.toLocaleString()} counties
               </span>
+              <a
+                href="mailto:?subject=FLARE%20Analytics%20—%20Comments%20%2F%20Suggestions"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-arc-gray-500 hover:text-arc-black border border-arc-gray-200 rounded hover:border-arc-gray-400 transition-colors"
+              >
+                <MessageSquare size={14} />
+                Comments / Suggestions
+              </a>
             </div>
           </div>
         </div>

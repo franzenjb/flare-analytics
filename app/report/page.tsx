@@ -3,13 +3,15 @@
 import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useFlare } from '@/lib/context';
-import { buildChapterReport, buildCountyReport } from '@/lib/report-data';
+import { buildChapterReport, buildCountyReport, buildRegionReport, buildDivisionReport } from '@/lib/report-data';
 import EntityReport from '@/components/report/EntityReport';
 
 function ReportPage() {
   const searchParams = useSearchParams();
   const { counties, loading } = useFlare();
 
+  const division = searchParams.get('division');
+  const region = searchParams.get('region');
   const chapter = searchParams.get('chapter');
   const county = searchParams.get('county');
 
@@ -29,7 +31,7 @@ function ReportPage() {
     );
   }
 
-  if (!chapter && !county) {
+  if (!division && !region && !chapter && !county) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center max-w-md">
@@ -37,12 +39,8 @@ function ReportPage() {
             FLARE Report
           </h1>
           <p className="text-sm text-gray-500 mb-4">
-            No entity specified. Use a URL like:
+            Select a division, region, chapter, or county from the dashboard to generate a report.
           </p>
-          <div className="text-xs text-gray-400 space-y-1 font-[family-name:var(--font-data)]">
-            <p>/report?chapter=Chapter+Name</p>
-            <p>/report?county=12345</p>
-          </div>
           <a href="/" className="inline-block mt-6 text-sm text-arc-red hover:underline">
             Back to Dashboard
           </a>
@@ -52,7 +50,11 @@ function ReportPage() {
   }
 
   try {
-    const report = chapter
+    const report = division
+      ? buildDivisionReport(division, counties)
+      : region
+      ? buildRegionReport(region, counties)
+      : chapter
       ? buildChapterReport(chapter, counties)
       : buildCountyReport(county!, counties);
 

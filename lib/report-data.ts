@@ -22,7 +22,7 @@ export interface PeerEntity {
 export interface ReportData {
   // Entity info
   entityName: string;
-  entityLevel: 'chapter' | 'county';
+  entityLevel: 'division' | 'region' | 'chapter' | 'county';
   dataDate: string;
   generatedAt: string;
 
@@ -267,6 +267,128 @@ export function buildCountyReport(
 
     missingDemographics: county.population === 0 ? 1 : 0,
     missingStations: stationCount === 0 ? 1 : 0,
+  };
+}
+
+/** Build complete report data for a region */
+export function buildRegionReport(
+  regionName: string,
+  allCounties: CountyData[],
+): ReportData {
+  const entityCounties = allCounties.filter(c => c.region === regionName);
+  if (entityCounties.length === 0) {
+    throw new Error(`No counties found for region: ${regionName}`);
+  }
+
+  const agg = computeNational(entityCounties);
+  const national = computeNational(allCounties);
+  const divisionName = entityCounties[0]?.division;
+
+  // SVI
+  const quintiles = bucketBySvi(entityCounties);
+  const equity = computeEquityGap(quintiles);
+
+  // Find peers — regions of similar total fire count
+  const regionRows = aggregateCounties(allCounties, 'region');
+  const lo = agg.total * 0.5;
+  const hi = agg.total * 1.5;
+  const peers = regionRows
+    .filter(r => r.name !== regionName && r.total >= lo && r.total <= hi)
+    .sort((a, b) => Math.abs(a.total - agg.total) - Math.abs(b.total - agg.total))
+    .slice(0, 5)
+    .map(toPeer);
+
+  const stationCount = entityCounties.reduce((s, c) => s + (c.stationCount || 0), 0);
+
+  return {
+    entityName: regionName,
+    entityLevel: 'region',
+    dataDate: 'Calendar Year 2024',
+    generatedAt: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+
+    region: regionName,
+    division: divisionName,
+
+    total: agg.total, care: agg.care, notification: agg.notification, gap: agg.gap,
+    careRate: agg.careRate, gapRate: agg.gapRate, avgSvi: agg.avgSvi, firesPer10k: agg.firesPer10k,
+    population: agg.population, households: agg.households, medianIncome: agg.medianIncome,
+    povertyRate: agg.povertyRate, homeValue: agg.homeValue, medianAge: agg.medianAge,
+    diversityIndex: agg.diversityIndex, affordabilityRatio: agg.affordabilityRatio,
+
+    stationCount,
+    firesPerStation: stationCount > 0 ? +(agg.total / stationCount).toFixed(1) : 0,
+    monthly: agg.monthly,
+    quintiles, equityNarrative: equity.narrative, equityGap: equity.ratio,
+
+    countyCount: entityCounties.length,
+    counties: entityCounties.sort((a, b) => b.total - a.total).map(c => ({
+      name: `${c.county}, ${c.state}`, fips: c.fips, total: c.total,
+      careRate: c.careRate, gapRate: c.gapRate, stationCount: c.stationCount || 0,
+    })),
+
+    national: toPeer(national),
+    peers,
+    missingDemographics: entityCounties.filter(c => !c.population || c.population === 0).length,
+    missingStations: entityCounties.filter(c => !c.stationCount || c.stationCount === 0).length,
+  };
+}
+
+/** Build complete report data for a division */
+export function buildDivisionReport(
+  divisionName: string,
+  allCounties: CountyData[],
+): ReportData {
+  const entityCounties = allCounties.filter(c => c.division === divisionName);
+  if (entityCounties.length === 0) {
+    throw new Error(`No counties found for division: ${divisionName}`);
+  }
+
+  const agg = computeNational(entityCounties);
+  const national = computeNational(allCounties);
+
+  // SVI
+  const quintiles = bucketBySvi(entityCounties);
+  const equity = computeEquityGap(quintiles);
+
+  // Find peers — other divisions
+  const divisionRows = aggregateCounties(allCounties, 'division');
+  const peers = divisionRows
+    .filter(r => r.name !== divisionName)
+    .sort((a, b) => Math.abs(a.total - agg.total) - Math.abs(b.total - agg.total))
+    .slice(0, 5)
+    .map(toPeer);
+
+  const stationCount = entityCounties.reduce((s, c) => s + (c.stationCount || 0), 0);
+
+  return {
+    entityName: divisionName,
+    entityLevel: 'division',
+    dataDate: 'Calendar Year 2024',
+    generatedAt: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+
+    division: divisionName,
+
+    total: agg.total, care: agg.care, notification: agg.notification, gap: agg.gap,
+    careRate: agg.careRate, gapRate: agg.gapRate, avgSvi: agg.avgSvi, firesPer10k: agg.firesPer10k,
+    population: agg.population, households: agg.households, medianIncome: agg.medianIncome,
+    povertyRate: agg.povertyRate, homeValue: agg.homeValue, medianAge: agg.medianAge,
+    diversityIndex: agg.diversityIndex, affordabilityRatio: agg.affordabilityRatio,
+
+    stationCount,
+    firesPerStation: stationCount > 0 ? +(agg.total / stationCount).toFixed(1) : 0,
+    monthly: agg.monthly,
+    quintiles, equityNarrative: equity.narrative, equityGap: equity.ratio,
+
+    countyCount: entityCounties.length,
+    counties: entityCounties.sort((a, b) => b.total - a.total).map(c => ({
+      name: `${c.county}, ${c.state}`, fips: c.fips, total: c.total,
+      careRate: c.careRate, gapRate: c.gapRate, stationCount: c.stationCount || 0,
+    })),
+
+    national: toPeer(national),
+    peers,
+    missingDemographics: entityCounties.filter(c => !c.population || c.population === 0).length,
+    missingStations: entityCounties.filter(c => !c.stationCount || c.stationCount === 0).length,
   };
 }
 

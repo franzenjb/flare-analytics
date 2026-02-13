@@ -124,9 +124,9 @@ export default function EntityReport({ report, onClose }: { report: ReportData; 
                 {report.entityName}
               </h1>
               <p className="text-sm text-gray-500 mt-1">
-                {report.entityLevel === 'chapter' ? 'Chapter' : 'County'} Report
-                {report.region && ` — ${report.region}`}
-                {report.division && ` / ${report.division}`}
+                {{ division: 'Division', region: 'Region', chapter: 'Chapter', county: 'County' }[report.entityLevel]} Report
+                {report.entityLevel === 'chapter' && report.region && ` — ${report.region}`}
+                {report.entityLevel !== 'division' && report.division && ` / ${report.division}`}
               </p>
             </div>
             <div className="text-right">
@@ -274,7 +274,7 @@ export default function EntityReport({ report, onClose }: { report: ReportData; 
         </section>
 
         {/* 9. County Breakdown (for chapters) */}
-        {report.entityLevel === 'chapter' && report.counties.length > 1 && (
+        {report.entityLevel !== 'county' && report.counties.length > 1 && (
           <section>
             <h2 className="font-[family-name:var(--font-headline)] text-lg font-bold text-gray-900 mb-3">
               County Breakdown

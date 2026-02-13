@@ -232,8 +232,16 @@ export default function DashboardTab() {
           subtitle={`${formatNumber(fn.total)} fires across ${fn.countyCount.toLocaleString()} counties — Calendar Year 2024`}
         />
         <div className="flex items-center gap-3">
-          {filters.chapter && <ReportButton chapterName={filters.chapter} />}
-          {filters.county && <ReportButton countyFips={filters.county} />}
+          {(filters.division || filters.region || filters.chapter || filters.county) ? (
+            <ReportButton
+              divisionName={filters.division || undefined}
+              regionName={!filters.division ? (filters.region || undefined) : undefined}
+              chapterName={!filters.division && !filters.region ? (filters.chapter || undefined) : undefined}
+              countyFips={!filters.division && !filters.region && !filters.chapter ? (filters.county || undefined) : undefined}
+            />
+          ) : (
+            <span className="text-xs text-arc-gray-400 italic">Select a filter to generate a report</span>
+          )}
         </div>
       </div>
 

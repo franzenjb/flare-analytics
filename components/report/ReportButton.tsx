@@ -2,22 +2,29 @@
 
 import { FileText } from 'lucide-react';
 
-/** Generate Report button — opens report in new tab */
-export default function ReportButton({ chapterName, countyFips, size = 'default' }: {
+/** Generate Report button — supports division, region, chapter, county */
+export default function ReportButton({ divisionName, regionName, chapterName, countyFips, size = 'default' }: {
+  divisionName?: string;
+  regionName?: string;
   chapterName?: string;
   countyFips?: string;
   size?: 'default' | 'sm';
 }) {
-  if (!chapterName && !countyFips) return null;
+  if (!divisionName && !regionName && !chapterName && !countyFips) return null;
 
-  const label = chapterName ? 'Generate Chapter Report' : 'Generate County Report';
-  const href = chapterName
-    ? `/report?chapter=${encodeURIComponent(chapterName)}`
-    : `/report?county=${encodeURIComponent(countyFips!)}`;
+  const level = divisionName ? 'Division' : regionName ? 'Region' : chapterName ? 'Chapter' : 'County';
+  const label = `Generate ${level} Report`;
+  const param = divisionName
+    ? `division=${encodeURIComponent(divisionName)}`
+    : regionName
+    ? `region=${encodeURIComponent(regionName)}`
+    : chapterName
+    ? `chapter=${encodeURIComponent(chapterName)}`
+    : `county=${encodeURIComponent(countyFips!)}`;
 
   return (
     <a
-      href={href}
+      href={`/report?${param}`}
       target="_blank"
       rel="noopener noreferrer"
       className={`inline-flex items-center font-semibold bg-arc-red text-white rounded hover:bg-red-700 transition-colors shadow-sm ${

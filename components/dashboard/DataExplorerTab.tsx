@@ -242,8 +242,12 @@ export default function DataExplorerTab() {
             <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black">
               Comparison ({selectedNames.size} selected)
             </h3>
-            {view === 'chapters' && selectedNames.size === 1 && (
-              <ReportButton chapterName={Array.from(selectedNames)[0]} />
+            {selectedNames.size === 1 && (view === 'chapters' || view === 'regions' || view === 'divisions') && (
+              <ReportButton
+                divisionName={view === 'divisions' ? Array.from(selectedNames)[0] : undefined}
+                regionName={view === 'regions' ? Array.from(selectedNames)[0] : undefined}
+                chapterName={view === 'chapters' ? Array.from(selectedNames)[0] : undefined}
+              />
             )}
           </div>
           <p className="text-[10px] text-arc-gray-500 mb-4">Click rows to select/deselect (max 3)</p>

@@ -579,10 +579,16 @@ export default function GeographyTab() {
 
   return (
     <div className="space-y-6">
-      <SectionHeader
-        title="Geography"
-        subtitle={`Spatial distribution of ${formatNumber(filteredCounties.reduce((s, c) => s + c.total, 0))} fires`}
-      />
+      <div className="flex items-start justify-between">
+        <SectionHeader
+          title="Geography"
+          subtitle={`Spatial distribution of ${formatNumber(filteredCounties.reduce((s, c) => s + c.total, 0))} fires`}
+        />
+        <div className="flex items-center gap-3">
+          {filters.chapter && <ReportButton chapterName={filters.chapter} />}
+          {filters.county && <ReportButton countyFips={filters.county} />}
+        </div>
+      </div>
 
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">

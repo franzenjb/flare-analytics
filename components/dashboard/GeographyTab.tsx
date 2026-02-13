@@ -98,7 +98,7 @@ function DetailPanel({ entity, counties, onClose }: {
       <div className="flex items-center justify-between">
         <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black">{entity.name}</h3>
         <div className="flex items-center gap-3">
-          {entity.fips.length === 5 && <ReportButton countyFips={entity.fips} size="xs" />}
+          {entity.fips.length === 5 && <ReportButton countyFips={entity.fips} size="sm" />}
           <button onClick={onClose} className="text-xs text-arc-gray-500 hover:text-arc-red">Close</button>
         </div>
       </div>

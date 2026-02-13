@@ -8,10 +8,10 @@ import { buildChapterReport, buildCountyReport, type ReportData } from '@/lib/re
 const EntityReport = lazy(() => import('./EntityReport'));
 
 /** Generate Report button for chapters or counties */
-export default function ReportButton({ chapterName, countyFips, size = 'sm' }: {
+export default function ReportButton({ chapterName, countyFips, size = 'default' }: {
   chapterName?: string;
   countyFips?: string;
-  size?: 'sm' | 'xs';
+  size?: 'default' | 'sm';
 }) {
   const { counties } = useFlare();
   const [report, setReport] = useState<ReportData | null>(null);
@@ -30,17 +30,19 @@ export default function ReportButton({ chapterName, countyFips, size = 'sm' }: {
 
   if (!chapterName && !countyFips) return null;
 
+  const label = chapterName ? 'Generate Chapter Report' : 'Generate County Report';
+
   return (
     <>
       <button
         onClick={handleGenerate}
-        className={`inline-flex items-center gap-1 font-medium text-arc-red hover:text-red-700 transition-colors ${
-          size === 'xs' ? 'text-[10px]' : 'text-xs'
+        className={`inline-flex items-center font-semibold bg-arc-red text-white rounded hover:bg-red-700 transition-colors shadow-sm ${
+          size === 'sm' ? 'gap-1.5 px-3 py-1.5 text-xs' : 'gap-2 px-5 py-2.5 text-sm'
         }`}
-        title="Generate PDF Report"
+        title={label}
       >
-        <FileText size={size === 'xs' ? 10 : 12} />
-        Report
+        <FileText size={size === 'sm' ? 14 : 18} />
+        {label}
       </button>
       {report && (
         <Suspense fallback={

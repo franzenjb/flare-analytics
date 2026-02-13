@@ -373,14 +373,19 @@ function DeckGLPointMap({ points, filters, hierarchy, stations, showStations }: 
       ];
       if (stationData.length > 0) {
         layerList.push(
-          new layers.ScatterplotLayer({
+          new layers.IconLayer({
             id: 'stations',
             data: stationData,
             getPosition: (d: StationDatum) => d.position,
-            getFillColor: [249, 115, 22, 200], // orange-500
-            getRadius: 600,
-            radiusMinPixels: 2,
-            radiusMaxPixels: 6,
+            getIcon: () => ({
+              url: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><polygon points="16,2 20.9,11.8 31.6,13.4 23.8,20.4 25.8,31 16,25.8 6.2,31 8.2,20.4 0.4,13.4 11.1,11.8" fill="%23f97316" stroke="%23c2410c" stroke-width="1.5"/></svg>'),
+              width: 32,
+              height: 32,
+              anchorY: 16,
+            }),
+            getSize: 18,
+            sizeMinPixels: 6,
+            sizeMaxPixels: 22,
             pickable: true,
           }),
         );
@@ -583,7 +588,7 @@ export default function GeographyTab() {
           className="flex items-center gap-1.5 text-xs ml-auto"
         >
           {showStations ? <Eye size={12} /> : <EyeOff size={12} className="text-arc-gray-300" />}
-          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: showStations ? '#f97316' : '#a3a3a3' }} />
+          <svg width="12" height="12" viewBox="0 0 32 32"><polygon points="16,2 20.9,11.8 31.6,13.4 23.8,20.4 25.8,31 16,25.8 6.2,31 8.2,20.4 0.4,13.4 11.1,11.8" fill={showStations ? '#f97316' : '#a3a3a3'} /></svg>
           <span className={showStations ? 'text-arc-gray-700' : 'text-arc-gray-300'}>
             Fire Stations {stations ? `(${formatNumber(stations.count)})` : ''}
           </span>

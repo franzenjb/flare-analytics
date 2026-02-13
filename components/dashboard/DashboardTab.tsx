@@ -183,9 +183,10 @@ export default function DashboardTab() {
   const quintiles = useMemo(() => bucketBySvi(filteredCounties), [filteredCounties]);
   const equity = useMemo(() => computeEquityGap(quintiles), [quintiles]);
 
-  // KPI deltas
-  const careDelta = fn.careRate - national.careRate;
-  const gapDelta = fn.gapRate - national.gapRate;
+  // KPI deltas — only meaningful when a filter is active
+  const hasFilters = !!(filters.division || filters.region || filters.chapter || filters.state);
+  const careDelta = hasFilters ? fn.careRate - national.careRate : null;
+  const gapDelta = hasFilters ? fn.gapRate - national.gapRate : null;
 
   // Mini-table columns
   const miniCols: ColumnDef<AggregatedRow>[] = [
@@ -234,7 +235,7 @@ export default function DashboardTab() {
           value={formatPercent(fn.careRate)}
           subtext={`${formatNumber(fn.care)} families served`}
           icon={ShieldCheck}
-          deltas={[{ label: 'vs national', value: careDelta, good: careDelta >= 0 }]}
+          deltas={careDelta !== null ? [{ label: 'vs national', value: careDelta, good: careDelta >= 0 }] : undefined}
         />
         <KpiCard
           label="Gap Rate"
@@ -242,7 +243,7 @@ export default function DashboardTab() {
           subtext={`${formatNumber(fn.gap)} fires missed`}
           icon={AlertTriangle}
           highlight
-          deltas={[{ label: 'vs national', value: gapDelta, good: gapDelta <= 0 }]}
+          deltas={gapDelta !== null ? [{ label: 'vs national', value: gapDelta, good: gapDelta <= 0 }] : undefined}
         />
         <KpiCard
           label="Avg SVI"

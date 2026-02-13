@@ -70,10 +70,10 @@ function CriticalAlerts({ entities, national }: { entities: AggregatedRow[]; nat
             alert.severity === 'critical' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
           }`}
         >
-          <AlertTriangle size={16} className={`shrink-0 mt-0.5 ${alert.severity === 'critical' ? 'text-arc-red' : 'text-amber-600'}`} />
+          <AlertTriangle size={20} className={`shrink-0 mt-0.5 ${alert.severity === 'critical' ? 'text-arc-red' : 'text-amber-600'}`} />
           <div>
-            <p className="text-xs font-medium text-arc-black">{alert.title}</p>
-            <p className="text-[10px] text-arc-gray-500 mt-0.5">{alert.detail}</p>
+            <p className="text-sm font-medium text-arc-black">{alert.title}</p>
+            <p className="text-xs text-arc-gray-500 mt-0.5">{alert.detail}</p>
           </div>
         </div>
       ))}

@@ -425,8 +425,10 @@ function DeckGLPointMap({ points, filters, hierarchy, stations, showStations }: 
     });
   }, [filteredData, stationData]);
 
-  // Auto-zoom to filtered area when org filters change
+  // Auto-zoom to filtered area when org filters change or data loads
   const filtersKey = `${globalFilters.division}|${globalFilters.region}|${globalFilters.chapter}|${globalFilters.state}|${globalFilters.county}`;
+  const pointCount = filteredData.length;
+
   useEffect(() => {
     if (!mapReady || !mapRefInternal.current) return;
     const map = mapRefInternal.current as { flyTo: (opts: object) => void; fitBounds: (bounds: [[number, number], [number, number]], opts?: object) => void };
@@ -438,7 +440,6 @@ function DeckGLPointMap({ points, filters, hierarchy, stations, showStations }: 
       return;
     }
 
-    // Use fire point bounds (filteredData is already correctly filtered by FIPS)
     if (filteredData.length === 0) return;
     let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
     for (const p of filteredData) {
@@ -450,7 +451,7 @@ function DeckGLPointMap({ points, filters, hierarchy, stations, showStations }: 
     }
     map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 60, duration: 1000, maxZoom: 14 });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtersKey, mapReady]);
+  }, [filtersKey, mapReady, pointCount]);
 
   return (
     <div className="relative">

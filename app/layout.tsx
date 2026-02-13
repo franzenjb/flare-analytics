@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Libre_Baskerville, Source_Sans_3, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import { FlareProvider } from "@/lib/context";
 
 const libreBaskerville = Libre_Baskerville({
   variable: "--font-headline",
@@ -35,7 +36,9 @@ export default function RootLayout({
       <body
         className={`${libreBaskerville.variable} ${sourceSans.variable} ${ibmPlexMono.variable} antialiased`}
       >
-        {children}
+        <FlareProvider>
+          {children}
+        </FlareProvider>
       </body>
     </html>
   );

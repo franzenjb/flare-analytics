@@ -1,16 +1,7 @@
-import type {
-  SummaryData,
-  FunnelData,
-  MonthlyData,
-  DailyData,
-  StateData,
-  DepartmentData,
-  GapAnalysisData,
-  RiskDistributionData,
-  FirePointsData,
-  CountyData,
-  OrgUnitData,
-} from './types';
+// Data loaders for FLARE Analytics v2
+// Primary source: by-county.json (2,997 records) — all aggregation done client-side
+
+import type { DailyData, FirePointsData, CountyData } from './types';
 import type { Topology } from 'topojson-specification';
 
 const cache = new Map<string, unknown>();
@@ -24,18 +15,13 @@ async function fetchJson<T>(path: string): Promise<T> {
   return data as T;
 }
 
-export const loadSummary = () => fetchJson<SummaryData>('/data/summary.json');
-export const loadFunnel = () => fetchJson<FunnelData>('/data/funnel.json');
-export const loadMonthly = () => fetchJson<MonthlyData[]>('/data/by-month.json');
-export const loadDaily = () => fetchJson<DailyData[]>('/data/by-day.json');
-export const loadStates = () => fetchJson<StateData[]>('/data/by-state.json');
-export const loadDepartments = () => fetchJson<DepartmentData[]>('/data/by-department.json');
-export const loadGapAnalysis = () => fetchJson<GapAnalysisData[]>('/data/gap-analysis.json');
-export const loadRiskDistribution = () => fetchJson<RiskDistributionData>('/data/risk-distribution.json');
-export const loadFirePoints = () => fetchJson<FirePointsData>('/data/fires-points.json');
+// Primary data source — loads once, aggregator does the rest
 export const loadCounties = () => fetchJson<CountyData[]>('/data/by-county.json');
-export const loadChapters = () => fetchJson<OrgUnitData[]>('/data/by-chapter.json');
-export const loadRegions = () => fetchJson<OrgUnitData[]>('/data/by-region.json');
-export const loadDivisions = () => fetchJson<OrgUnitData[]>('/data/by-division.json');
+
+// Lazy-loaded for map + trends
+export const loadFirePoints = () => fetchJson<FirePointsData>('/data/fires-points.json');
+export const loadDaily = () => fetchJson<DailyData[]>('/data/by-day.json');
+
+// TopoJSON for choropleth
 export const loadStatesTopo = () => fetchJson<Topology>('/data/geo/states-albers-10m.json');
 export const loadCountiesTopo = () => fetchJson<Topology>('/data/geo/counties-albers-10m.json');

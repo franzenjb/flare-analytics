@@ -132,7 +132,61 @@ export interface OrgUnitData {
   monthly: MonthlyData[];
 }
 
-export type TabId = 'executive' | 'map' | 'gap' | 'temporal' | 'departments' | 'regional' | 'organization';
+// v1 tabs (kept for backward compat during migration)
+export type TabIdV1 = 'executive' | 'map' | 'gap' | 'temporal' | 'departments' | 'regional' | 'organization';
+
+// v2 tabs
+export type TabId = 'dashboard' | 'explorer' | 'geography' | 'trends';
+
+export type MetricMode = 'raw' | 'perCapita' | 'perHousehold';
+
+export type OrgLevel = 'national' | 'division' | 'region' | 'chapter' | 'state' | 'county';
+
+export interface FilterState {
+  division: string | null;
+  region: string | null;
+  chapter: string | null;
+  state: string | null;
+}
+
+export interface AggregatedRow {
+  name: string;
+  level: OrgLevel;
+  total: number;
+  care: number;
+  notification: number;
+  gap: number;
+  careRate: number;
+  gapRate: number;
+  avgSvi: number;
+  population: number;
+  households: number;
+  poverty: number;
+  medianIncome: number;
+  medianAge: number;
+  diversityIndex: number;
+  homeValue: number;
+  firesPer10k: number;
+  countyCount: number;
+  monthly: MonthlyData[];
+  // Peer benchmarks (injected by injectBenchmarks)
+  parentCareRate?: number;
+  parentGapRate?: number;
+  nationalCareRate?: number;
+  nationalGapRate?: number;
+}
+
+export interface SviQuintileBucket {
+  label: string;
+  range: [number, number];
+  total: number;
+  care: number;
+  gap: number;
+  careRate: number;
+  gapRate: number;
+  population: number;
+  countyCount: number;
+}
 
 export interface NavigationTarget {
   tab: TabId;

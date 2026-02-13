@@ -1,37 +1,31 @@
 'use client';
 
-import { useState, lazy, Suspense, useCallback, useMemo } from 'react';
+import { useState, lazy, Suspense, useCallback, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import type { TabId } from '@/lib/types';
+import { useFlare } from '@/lib/context';
+import type { TabId, MetricMode } from '@/lib/types';
+import FilterBar from '@/components/ui/FilterBar';
+import MetricToggle from '@/components/ui/MetricToggle';
 import {
   LayoutDashboard,
+  Table2,
   Map,
-  AlertTriangle,
-  Calendar,
-  Building2,
-  Globe,
-  Network,
+  TrendingUp,
 } from 'lucide-react';
 
-const ExecutiveDashboard = lazy(() => import('@/components/dashboard/ExecutiveDashboard'));
-const MapExplorer = lazy(() => import('@/components/dashboard/MapExplorer'));
-const GapAnalysis = lazy(() => import('@/components/dashboard/GapAnalysis'));
-const TemporalPatterns = lazy(() => import('@/components/dashboard/TemporalPatterns'));
-const DepartmentIntel = lazy(() => import('@/components/dashboard/DepartmentIntel'));
-const RegionalDeepDive = lazy(() => import('@/components/dashboard/RegionalDeepDive'));
-const OrganizationView = lazy(() => import('@/components/dashboard/OrganizationView'));
+const DashboardTab = lazy(() => import('@/components/dashboard/DashboardTab'));
+const DataExplorerTab = lazy(() => import('@/components/dashboard/DataExplorerTab'));
+const GeographyTab = lazy(() => import('@/components/dashboard/GeographyTab'));
+const TrendsTab = lazy(() => import('@/components/dashboard/TrendsTab'));
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
-  { id: 'executive', label: 'Executive', icon: LayoutDashboard },
-  { id: 'map', label: 'Map Explorer', icon: Map },
-  { id: 'gap', label: 'Gap Analysis', icon: AlertTriangle },
-  { id: 'temporal', label: 'Temporal', icon: Calendar },
-  { id: 'departments', label: 'Departments', icon: Building2 },
-  { id: 'regional', label: 'Regional', icon: Globe },
-  { id: 'organization', label: 'Organization', icon: Network },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'explorer', label: 'Data Explorer', icon: Table2 },
+  { id: 'geography', label: 'Geography', icon: Map },
+  { id: 'trends', label: 'Trends', icon: TrendingUp },
 ];
 
-const VALID_TABS = new Set<TabId>(['executive', 'map', 'gap', 'temporal', 'departments', 'regional', 'organization']);
+const VALID_TABS = new Set<TabId>(['dashboard', 'explorer', 'geography', 'trends']);
 
 function TabSkeleton() {
   return (
@@ -47,60 +41,57 @@ function TabSkeleton() {
   );
 }
 
+function LoadingSkeleton() {
+  return (
+    <div className="min-h-screen bg-arc-cream flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-12 h-12 mx-auto mb-4">
+          <svg viewBox="0 0 32 32" className="w-full h-full animate-pulse">
+            <rect x="12" y="4" width="8" height="24" fill="#ED1B2E" />
+            <rect x="4" y="12" width="24" height="8" fill="#ED1B2E" />
+          </svg>
+        </div>
+        <p className="text-sm text-arc-gray-500">Loading FLARE Analytics...</p>
+        <p className="text-[10px] text-arc-gray-300 mt-1">2,997 counties • 103,400 fire events</p>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { loading, filteredNational, setFilters, setMetricMode } = useFlare();
+
+  // Parse URL params on mount
   const tabParam = searchParams.get('tab') as TabId | null;
-  const initialTab = tabParam && VALID_TABS.has(tabParam) ? tabParam : 'executive';
+  const initialTab = tabParam && VALID_TABS.has(tabParam) ? tabParam : 'dashboard';
   const [activeTab, setActiveTabState] = useState<TabId>(initialTab);
 
-  // Parse URL params for cross-tab navigation
-  const urlParams = useMemo(() => ({
-    state: searchParams.get('state') || undefined,
-    division: searchParams.get('div') || undefined,
-    region: searchParams.get('reg') || undefined,
-    chapter: searchParams.get('ch') || undefined,
-  }), [searchParams]);
+  // Sync URL filters to context on mount
+  useEffect(() => {
+    const div = searchParams.get('div') || null;
+    const reg = searchParams.get('reg') || null;
+    const ch = searchParams.get('ch') || null;
+    const state = searchParams.get('state') || null;
+    const mode = searchParams.get('mode') as MetricMode | null;
+
+    if (div || reg || ch || state) {
+      setFilters({ division: div, region: reg, chapter: ch, state });
+    }
+    if (mode && ['raw', 'perCapita', 'perHousehold'].includes(mode)) {
+      setMetricMode(mode);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const setActiveTab = useCallback((tab: TabId) => {
     setActiveTabState(tab);
-    const url = tab === 'executive' ? '/' : `/?tab=${tab}`;
+    const url = tab === 'dashboard' ? '/' : `/?tab=${tab}`;
     router.replace(url, { scroll: false });
   }, [router]);
 
-  // Cross-tab navigation: navigates to target tab with optional params
-  const navigateTo = useCallback((tab: string, params?: Record<string, string>) => {
-    const targetTab = tab as TabId;
-    if (!VALID_TABS.has(targetTab)) return;
-
-    setActiveTabState(targetTab);
-
-    // Build URL with params
-    const urlParts = [`tab=${targetTab}`];
-    if (params) {
-      if (params.state) urlParts.push(`state=${encodeURIComponent(params.state)}`);
-      if (params.division) urlParts.push(`div=${encodeURIComponent(params.division)}`);
-      if (params.region) urlParts.push(`reg=${encodeURIComponent(params.region)}`);
-      if (params.chapter) urlParts.push(`ch=${encodeURIComponent(params.chapter)}`);
-    }
-
-    const url = targetTab === 'executive' && !params ? '/' : `/?${urlParts.join('&')}`;
-    router.replace(url, { scroll: false });
-  }, [router]);
-
-  // Build initial drill state for OrganizationView from URL params
-  const initialOrgDrill = useMemo(() => {
-    if (urlParams.chapter && urlParams.region && urlParams.division) {
-      return { level: 'county' as const, divisionName: urlParams.division, regionName: urlParams.region, chapterName: urlParams.chapter };
-    }
-    if (urlParams.region && urlParams.division) {
-      return { level: 'chapter' as const, divisionName: urlParams.division, regionName: urlParams.region };
-    }
-    if (urlParams.division) {
-      return { level: 'region' as const, divisionName: urlParams.division };
-    }
-    return undefined;
-  }, [urlParams]);
+  if (loading) return <LoadingSkeleton />;
 
   return (
     <div className="min-h-screen bg-arc-cream">
@@ -124,9 +115,9 @@ function Dashboard() {
                 </p>
               </div>
             </div>
-            <div className="hidden sm:block text-right">
+            <div className="hidden sm:flex items-center gap-4">
               <span className="font-[family-name:var(--font-data)] text-xs text-arc-gray-500">
-                103,400 fire events
+                {filteredNational.total.toLocaleString()} fires · {filteredNational.countyCount.toLocaleString()} counties
               </span>
             </div>
           </div>
@@ -136,38 +127,47 @@ function Dashboard() {
       {/* Tab Navigation */}
       <nav className="bg-white border-b border-arc-gray-100 sticky top-0 z-50 print:hidden">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex gap-0 overflow-x-auto" role="tablist" aria-label="Dashboard sections">
-            {TABS.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                role="tab"
-                aria-selected={activeTab === id}
-                aria-controls={`tabpanel-${id}`}
-                onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-arc-red focus-visible:ring-offset-1 ${
-                  activeTab === id
-                    ? 'border-arc-red text-arc-black'
-                    : 'border-transparent text-arc-gray-500 hover:text-arc-gray-700 hover:border-arc-gray-300'
-                }`}
-              >
-                <Icon size={16} />
-                <span className="hidden sm:inline">{label}</span>
-              </button>
-            ))}
+          <div className="flex items-center justify-between">
+            <div className="flex gap-0 overflow-x-auto" role="tablist" aria-label="Dashboard sections">
+              {TABS.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={activeTab === id}
+                  aria-controls={`tabpanel-${id}`}
+                  onClick={() => setActiveTab(id)}
+                  className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-arc-red focus-visible:ring-offset-1 ${
+                    activeTab === id
+                      ? 'border-arc-red text-arc-black'
+                      : 'border-transparent text-arc-gray-500 hover:text-arc-gray-700 hover:border-arc-gray-300'
+                  }`}
+                >
+                  <Icon size={16} />
+                  <span className="hidden sm:inline">{label}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </nav>
 
+      {/* Filter Bar + Metric Toggle */}
+      <div className="bg-white border-b border-arc-gray-100 print:hidden">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <FilterBar />
+            <MetricToggle />
+          </div>
+        </div>
+      </div>
+
       {/* Tab Content */}
       <main id={`tabpanel-${activeTab}`} role="tabpanel" aria-label={TABS.find(t => t.id === activeTab)?.label} className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Suspense fallback={<TabSkeleton />}>
-          {activeTab === 'executive' && <ExecutiveDashboard onNavigate={navigateTo} />}
-          {activeTab === 'map' && <MapExplorer initialState={urlParams.state} />}
-          {activeTab === 'gap' && <GapAnalysis />}
-          {activeTab === 'temporal' && <TemporalPatterns />}
-          {activeTab === 'departments' && <DepartmentIntel />}
-          {activeTab === 'regional' && <RegionalDeepDive onNavigate={navigateTo} />}
-          {activeTab === 'organization' && <OrganizationView onNavigate={navigateTo} initialDrill={initialOrgDrill} />}
+          {activeTab === 'dashboard' && <DashboardTab />}
+          {activeTab === 'explorer' && <DataExplorerTab />}
+          {activeTab === 'geography' && <GeographyTab />}
+          {activeTab === 'trends' && <TrendsTab />}
         </Suspense>
       </main>
 
@@ -175,7 +175,7 @@ function Dashboard() {
       <footer className="border-t border-arc-gray-100 bg-white mt-8 print:hidden">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-xs text-arc-gray-500 text-center">
-            American Red Cross — FLARE Analytics — Data through December 2024
+            American Red Cross — FLARE Analytics v2 — Data through December 2024
           </p>
         </div>
       </footer>
@@ -185,7 +185,7 @@ function Dashboard() {
 
 export default function Home() {
   return (
-    <Suspense fallback={<TabSkeleton />}>
+    <Suspense fallback={<LoadingSkeleton />}>
       <Dashboard />
     </Suspense>
   );

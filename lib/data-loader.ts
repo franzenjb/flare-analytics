@@ -11,6 +11,7 @@ import type {
   CountyData,
   OrgUnitData,
 } from './types';
+import type { Topology } from 'topojson-specification';
 
 const cache = new Map<string, unknown>();
 
@@ -36,3 +37,5 @@ export const loadCounties = () => fetchJson<CountyData[]>('/data/by-county.json'
 export const loadChapters = () => fetchJson<OrgUnitData[]>('/data/by-chapter.json');
 export const loadRegions = () => fetchJson<OrgUnitData[]>('/data/by-region.json');
 export const loadDivisions = () => fetchJson<OrgUnitData[]>('/data/by-division.json');
+export const loadStatesTopo = () => fetchJson<Topology>('/data/geo/states-albers-10m.json');
+export const loadCountiesTopo = () => fetchJson<Topology>('/data/geo/counties-albers-10m.json');

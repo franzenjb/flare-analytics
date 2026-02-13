@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { Map as MapIcon, Eye, EyeOff } from 'lucide-react';
-import { loadFirePoints, loadSummary } from '@/lib/data-loader';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { Eye, EyeOff, RotateCcw } from 'lucide-react';
+import { loadFirePoints, loadSummary, loadCounties } from '@/lib/data-loader';
 import { formatNumber, formatSvi } from '@/lib/format';
 import type { FirePointsData, SummaryData } from '@/lib/types';
 import { CATEGORY_COLORS, CATEGORY_LABELS } from '@/lib/types';
+import { buildOrgHierarchy } from '@/lib/org-hierarchy';
+import type { OrgHierarchy } from '@/lib/org-hierarchy';
 
 const INITIAL_VIEW = {
   longitude: -98.5,
@@ -29,6 +31,9 @@ interface FilterState {
   showGap: boolean;
   monthRange: [number, number];
   sviMin: number;
+  division: string | null;
+  region: string | null;
+  chapter: string | null;
 }
 
 interface PointDatum {
@@ -39,14 +44,14 @@ interface PointDatum {
   region?: string;
 }
 
-function DeckGLMap({ filteredData, gapData, viewMode }: {
+function DeckGLMap({ filteredData, gapData, viewMode, mapRef }: {
   filteredData: PointDatum[];
   gapData: PointDatum[];
   viewMode: ViewMode;
+  mapRef: React.MutableRefObject<unknown>;
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const deckRef = useRef<unknown>(null);
-  const mapRef = useRef<unknown>(null);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -98,9 +103,9 @@ function DeckGLMap({ filteredData, gapData, viewMode }: {
       cleanup = true;
       if (mapRef.current) {
         (mapRef.current as { remove: () => void }).remove();
+        mapRef.current = null;
       }
     };
-  // Only run once on mount
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -159,28 +164,82 @@ function DeckGLMap({ filteredData, gapData, viewMode }: {
   return <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />;
 }
 
-export default function MapExplorer() {
+export default function MapExplorer({ initialState }: { initialState?: string }) {
   const [points, setPoints] = useState<FirePointsData | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);
+  const [orgHierarchy, setOrgHierarchy] = useState<OrgHierarchy | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('scatter');
+  const mapRef = useRef<unknown>(null);
   const [filters, setFilters] = useState<FilterState>({
     showCare: true,
     showNotification: true,
     showGap: true,
     monthRange: [1, 12],
     sviMin: 0,
+    division: null,
+    region: null,
+    chapter: null,
   });
 
   useEffect(() => {
-    Promise.all([loadFirePoints(), loadSummary()])
-      .then(([p, s]) => { setPoints(p); setSummary(s); });
+    Promise.all([loadFirePoints(), loadSummary(), loadCounties()])
+      .then(([p, s, counties]) => {
+        setPoints(p);
+        setSummary(s);
+        setOrgHierarchy(buildOrgHierarchy(counties));
+      });
   }, []);
+
+  // Build fast lookup Sets for org filtering
+  const orgIndices = useMemo(() => {
+    if (!points || !orgHierarchy) return null;
+
+    const regionToDivision = orgHierarchy.regionToDivision;
+    const chapterToRegion = orgHierarchy.chapterToRegion;
+
+    // Pre-build: chapter index → division, region name
+    const chapterToDivision = new Map<string, string>();
+    for (const [ch, reg] of chapterToRegion) {
+      const div = regionToDivision.get(reg);
+      if (div) chapterToDivision.set(ch, div);
+    }
+
+    return { regionToDivision, chapterToRegion, chapterToDivision };
+  }, [points, orgHierarchy]);
 
   const filteredData = useMemo(() => {
     if (!points) return [];
     const result: PointDatum[] = [];
     const chapters = points.chapters || [];
     const regions = points.regions || [];
+
+    // Pre-compute org filter sets for fast lookup
+    let chapterFilterSet: Set<number> | null = null;
+    if (filters.chapter && orgIndices) {
+      chapterFilterSet = new Set<number>();
+      for (let ci = 0; ci < chapters.length; ci++) {
+        if (chapters[ci] === filters.chapter) chapterFilterSet.add(ci);
+      }
+    } else if (filters.region && orgIndices) {
+      chapterFilterSet = new Set<number>();
+      const regionChapters = orgHierarchy?.regionToChapters.get(filters.region) || [];
+      const chapterSet = new Set(regionChapters);
+      for (let ci = 0; ci < chapters.length; ci++) {
+        if (chapterSet.has(chapters[ci])) chapterFilterSet.add(ci);
+      }
+    } else if (filters.division && orgIndices) {
+      chapterFilterSet = new Set<number>();
+      const divRegions = orgHierarchy?.divisionToRegions.get(filters.division) || [];
+      const chapterSet = new Set<string>();
+      for (const reg of divRegions) {
+        const chs = orgHierarchy?.regionToChapters.get(reg) || [];
+        for (const ch of chs) chapterSet.add(ch);
+      }
+      for (let ci = 0; ci < chapters.length; ci++) {
+        if (chapterSet.has(chapters[ci])) chapterFilterSet.add(ci);
+      }
+    }
+
     for (let i = 0; i < points.count; i++) {
       const cat = points.cat[i];
       const month = points.month[i];
@@ -190,6 +249,13 @@ export default function MapExplorer() {
       if (cat === 2 && !filters.showGap) continue;
       if (month < filters.monthRange[0] || month > filters.monthRange[1]) continue;
       if (svi < filters.sviMin) continue;
+
+      // Org filter
+      if (chapterFilterSet) {
+        const chIdx = points.ch?.[i] ?? -1;
+        if (chIdx < 0 || !chapterFilterSet.has(chIdx)) continue;
+      }
+
       const chIdx = points.ch?.[i] ?? -1;
       const rgIdx = points.rg?.[i] ?? -1;
       result.push({
@@ -201,7 +267,43 @@ export default function MapExplorer() {
       });
     }
     return result;
-  }, [points, filters]);
+  }, [points, filters, orgIndices, orgHierarchy]);
+
+  // Auto-zoom when org filters change
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current as { fitBounds: (bounds: [[number, number], [number, number]], opts: object) => void; flyTo: (opts: object) => void };
+
+    if (!filters.division && !filters.region && !filters.chapter) {
+      // Reset to initial view
+      map.flyTo({
+        center: [INITIAL_VIEW.longitude, INITIAL_VIEW.latitude],
+        zoom: INITIAL_VIEW.zoom,
+        duration: 800,
+      });
+      return;
+    }
+
+    if (filteredData.length === 0) return;
+
+    // Compute bounds
+    let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    for (const d of filteredData) {
+      const [lon, lat] = d.position;
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+
+    if (minLon < maxLon && minLat < maxLat) {
+      map.fitBounds(
+        [[minLon, minLat], [maxLon, maxLat]],
+        { padding: 50, duration: 800, maxZoom: 12 }
+      );
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.division, filters.region, filters.chapter, filteredData.length]);
 
   const gapData = useMemo(() => filteredData.filter(d => d.cat === 2), [filteredData]);
 
@@ -213,6 +315,17 @@ export default function MapExplorer() {
     const avgSvi = total > 0 ? filteredData.reduce((sum, d) => sum + d.svi, 0) / total : 0;
     return { total, care, notification, gap, avgSvi };
   }, [filteredData]);
+
+  // Available options for cascading dropdowns
+  const divisionOptions = orgHierarchy?.divisions || [];
+  const regionOptions = useMemo(() => {
+    if (!orgHierarchy || !filters.division) return [];
+    return orgHierarchy.divisionToRegions.get(filters.division) || [];
+  }, [orgHierarchy, filters.division]);
+  const chapterOptions = useMemo(() => {
+    if (!orgHierarchy || !filters.region) return [];
+    return orgHierarchy.regionToChapters.get(filters.region) || [];
+  }, [orgHierarchy, filters.region]);
 
   if (!points || !summary) {
     return (
@@ -257,6 +370,64 @@ export default function MapExplorer() {
                   {mode === 'scatter' ? 'Points' : 'Heatmap'}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Organization filters */}
+          <div className="bg-white rounded p-4 border border-arc-gray-100">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-medium text-arc-gray-500 uppercase tracking-wide">Organization</h4>
+              {(filters.division || filters.region || filters.chapter) && (
+                <button
+                  onClick={() => setFilters(f => ({ ...f, division: null, region: null, chapter: null }))}
+                  className="text-[10px] text-arc-gray-500 hover:text-arc-red flex items-center gap-1"
+                >
+                  <RotateCcw size={10} /> Reset
+                </button>
+              )}
+            </div>
+            <div className="space-y-2">
+              <select
+                value={filters.division || ''}
+                onChange={e => {
+                  const val = e.target.value || null;
+                  setFilters(f => ({ ...f, division: val, region: null, chapter: null }));
+                }}
+                className="w-full px-2 py-1.5 text-xs border border-arc-gray-100 rounded bg-arc-cream"
+              >
+                <option value="">All Divisions</option>
+                {divisionOptions.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+              <select
+                value={filters.region || ''}
+                onChange={e => {
+                  const val = e.target.value || null;
+                  setFilters(f => ({ ...f, region: val, chapter: null }));
+                }}
+                disabled={!filters.division}
+                className="w-full px-2 py-1.5 text-xs border border-arc-gray-100 rounded bg-arc-cream disabled:opacity-40"
+              >
+                <option value="">All Regions</option>
+                {regionOptions.map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+              <select
+                value={filters.chapter || ''}
+                onChange={e => {
+                  const val = e.target.value || null;
+                  setFilters(f => ({ ...f, chapter: val }));
+                }}
+                disabled={!filters.region}
+                className="w-full px-2 py-1.5 text-xs border border-arc-gray-100 rounded bg-arc-cream disabled:opacity-40"
+              >
+                <option value="">All Chapters</option>
+                {chapterOptions.map(ch => (
+                  <option key={ch} value={ch}>{ch}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -369,7 +540,7 @@ export default function MapExplorer() {
 
         {/* Map container */}
         <div className="flex-1 h-[600px] rounded overflow-hidden border border-arc-gray-100 relative bg-arc-gray-100">
-          <DeckGLMap filteredData={filteredData} gapData={gapData} viewMode={viewMode} />
+          <DeckGLMap filteredData={filteredData} gapData={gapData} viewMode={viewMode} mapRef={mapRef} />
 
           {/* Legend overlay */}
           <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded px-3 py-2 text-xs border border-arc-gray-100">
@@ -385,6 +556,14 @@ export default function MapExplorer() {
               ))}
             </div>
           </div>
+
+          {/* Org filter badge */}
+          {(filters.division || filters.region || filters.chapter) && (
+            <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm rounded px-3 py-2 text-xs border border-arc-gray-100">
+              <span className="text-arc-gray-500">Filtered: </span>
+              <span className="font-medium">{filters.chapter || filters.region || filters.division}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

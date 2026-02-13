@@ -134,6 +134,14 @@ export interface OrgUnitData {
 
 export type TabId = 'executive' | 'map' | 'gap' | 'temporal' | 'departments' | 'regional' | 'organization';
 
+export interface NavigationTarget {
+  tab: TabId;
+  state?: string;
+  division?: string;
+  region?: string;
+  chapter?: string;
+}
+
 export const CATEGORY_COLORS = {
   care: '#2d5a27',
   notification: '#1e4a6d',

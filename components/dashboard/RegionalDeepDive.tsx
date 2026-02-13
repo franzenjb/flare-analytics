@@ -1,110 +1,124 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, LineChart, Line,
 } from 'recharts';
 import { ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react';
-import { loadStates } from '@/lib/data-loader';
+import { loadStates, loadStatesTopo, loadCountiesTopo, loadCounties } from '@/lib/data-loader';
 import { formatNumber, formatPercent, formatSvi } from '@/lib/format';
-import type { StateData } from '@/lib/types';
+import type { StateData, CountyData } from '@/lib/types';
 import { CATEGORY_COLORS } from '@/lib/types';
-
-// Simplified US state positions for SVG choropleth
-const STATE_POSITIONS: Record<string, [number, number]> = {
-  AK: [1, 0], HI: [1, 6], WA: [1, 1], OR: [1, 2], CA: [1, 3],
-  NV: [2, 2], ID: [2, 1], MT: [3, 1], WY: [3, 2], UT: [2, 3],
-  CO: [3, 3], AZ: [2, 4], NM: [3, 4], ND: [4, 1], SD: [4, 2],
-  NE: [4, 3], KS: [4, 4], OK: [4, 5], TX: [3, 5], MN: [5, 1],
-  IA: [5, 2], MO: [5, 3], AR: [5, 4], LA: [4, 6], WI: [6, 1],
-  IL: [6, 2], MS: [5, 5], AL: [6, 5], MI: [7, 1], IN: [7, 2],
-  OH: [7, 3], TN: [6, 4], GA: [7, 5], KY: [7, 4], FL: [7, 6],
-  WV: [8, 3], VA: [8, 4], NC: [8, 5], SC: [8, 6], PA: [8, 2],
-  NY: [9, 1], NJ: [9, 2], DE: [9, 3], MD: [9, 4], DC: [9, 5],
-  CT: [10, 1], RI: [10, 2], MA: [10, 3], VT: [11, 1], NH: [11, 2],
-  ME: [11, 3], PR: [2, 7], GU: [1, 7], VI: [3, 7],
-};
+import { parseStatesTopo, parseCountiesTopo, getMetricColor, getLabelColor, LABEL_STATES } from '@/lib/geo-utils';
+import type { GeoFeature } from '@/lib/geo-utils';
 
 type Metric = 'total' | 'careRate' | 'gapRate' | 'avgSvi';
+type GeoLevel = 'state' | 'county';
 
-function StateChoropleth({ data, metric }: { data: StateData[]; metric: Metric }) {
+interface ChoroplethProps {
+  stateData: StateData[];
+  metric: Metric;
+  onStateClick?: (abbr: string) => void;
+  onNavigate?: (tab: string, params?: Record<string, string>) => void;
+}
+
+function StateChoropleth({ stateData, metric, onStateClick }: ChoroplethProps) {
   const [hovered, setHovered] = useState<string | null>(null);
-  const stateMap = useMemo(() => new Map(data.map(d => [d.state, d])), [data]);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [features, setFeatures] = useState<GeoFeature[]>([]);
+
+  useEffect(() => {
+    loadStatesTopo().then(topo => {
+      setFeatures(parseStatesTopo(topo));
+    });
+  }, []);
+
+  const stateMap = useMemo(() => new Map(stateData.map(d => [d.state, d])), [stateData]);
 
   const maxVal = useMemo(() => {
-    return Math.max(...data.map(d => d[metric] as number));
-  }, [data, metric]);
+    return Math.max(...stateData.map(d => d[metric] as number));
+  }, [stateData, metric]);
 
-  function getColor(state: string): string {
-    const d = stateMap.get(state);
-    if (!d) return '#e5e5e5';
-    const val = d[metric] as number;
-    const intensity = val / maxVal;
+  const hoveredData = hovered ? stateMap.get(hovered) : null;
 
-    if (metric === 'gapRate') {
-      // Red scale for gaps
-      if (intensity > 0.8) return '#c41e3a';
-      if (intensity > 0.6) return '#ED1B2E';
-      if (intensity > 0.4) return '#f58b98';
-      if (intensity > 0.2) return '#fdd5d9';
-      return '#fef0f1';
-    }
-    if (metric === 'careRate') {
-      // Green scale for care
-      if (intensity > 0.8) return '#1a4a14';
-      if (intensity > 0.6) return '#2d5a27';
-      if (intensity > 0.4) return '#5a8a54';
-      if (intensity > 0.2) return '#a3c89e';
-      return '#dceeda';
-    }
-    // Gray scale for total / svi
-    if (intensity > 0.8) return '#2d2d2d';
-    if (intensity > 0.6) return '#4a4a4a';
-    if (intensity > 0.4) return '#737373';
-    if (intensity > 0.2) return '#a3a3a3';
-    return '#d4d4d4';
+  if (features.length === 0) {
+    return <div className="animate-pulse h-[400px] bg-arc-gray-100 rounded" />;
   }
 
-  const CELL = 42;
-  const GAP = 3;
-
   return (
-    <div className="relative">
-      <svg viewBox={`0 0 ${12 * (CELL + GAP)} ${9 * (CELL + GAP)}`} className="w-full max-w-[700px]">
-        {Object.entries(STATE_POSITIONS).map(([state, [col, row]]) => {
-          const x = col * (CELL + GAP);
-          const y = row * (CELL + GAP);
-          const d = stateMap.get(state);
+    <div
+      className="relative"
+      onMouseMove={e => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      }}
+    >
+      <svg viewBox="-10 0 985 620" className="w-full" style={{ maxHeight: 500 }}>
+        {features.map(f => {
+          const d = stateMap.get(f.abbr);
+          const val = d ? (d[metric] as number) : 0;
+          const fill = d ? getMetricColor(val, maxVal, metric) : '#f1f5f9';
+          const isHovered = hovered === f.abbr;
           return (
-            <g
-              key={state}
-              onMouseEnter={() => setHovered(state)}
-              onMouseLeave={() => setHovered(null)}
-              style={{ cursor: 'pointer' }}
-            >
-              <rect x={x} y={y} width={CELL} height={CELL} rx={3} fill={getColor(state)}
-                stroke={hovered === state ? '#1a1a1a' : '#ffffff'} strokeWidth={hovered === state ? 2 : 1}
+            <g key={f.id}>
+              <path
+                d={f.path}
+                fill={fill}
+                stroke={isHovered ? '#1a1a1a' : '#ffffff'}
+                strokeWidth={isHovered ? 2 : 0.5}
+                style={{ cursor: 'pointer', transition: 'stroke-width 0.1s' }}
+                onMouseEnter={() => setHovered(f.abbr)}
+                onMouseLeave={() => setHovered(null)}
+                onClick={() => onStateClick?.(f.abbr)}
               />
-              <text x={x + CELL / 2} y={y + CELL / 2 + 1} textAnchor="middle" dominantBaseline="middle"
-                fontSize={10} fontWeight={600}
-                fill={getColor(state) === '#e5e5e5' || getColor(state).startsWith('#f') || getColor(state).startsWith('#d') || getColor(state).startsWith('#a') ? '#4a4a4a' : '#ffffff'}
-              >
-                {state}
-              </text>
+              {LABEL_STATES.has(f.abbr) && (
+                <text
+                  x={f.centroid[0]}
+                  y={f.centroid[1]}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize={10}
+                  fontWeight={600}
+                  fill={getLabelColor(fill)}
+                  pointerEvents="none"
+                >
+                  {f.abbr}
+                </text>
+              )}
             </g>
           );
         })}
       </svg>
 
-      {hovered && stateMap.has(hovered) && (
-        <div className="absolute top-2 right-2 bg-white border border-arc-gray-100 rounded p-3 shadow-sm text-xs min-w-[160px]">
-          <p className="font-bold text-sm">{hovered}</p>
+      {/* Legend bar */}
+      <div className="flex items-center justify-center gap-1 mt-2 text-[10px] text-arc-gray-500">
+        <span>Low</span>
+        {[0.1, 0.3, 0.5, 0.7, 0.9].map(v => (
+          <div
+            key={v}
+            className="w-8 h-3 rounded-sm"
+            style={{ backgroundColor: getMetricColor(v * maxVal, maxVal, metric) }}
+          />
+        ))}
+        <span>High</span>
+      </div>
+
+      {/* Tooltip */}
+      {hoveredData && (
+        <div
+          className="absolute bg-white border border-arc-gray-100 rounded p-3 shadow-lg text-xs min-w-[160px] pointer-events-none z-20"
+          style={{
+            left: Math.min(mousePos.x + 12, 600),
+            top: mousePos.y - 10,
+          }}
+        >
+          <p className="font-bold text-sm">{hoveredData.state}</p>
           <div className="space-y-1 mt-1">
-            <p>Total: {formatNumber(stateMap.get(hovered)!.total)}</p>
-            <p>Care Rate: {formatPercent(stateMap.get(hovered)!.careRate)}</p>
-            <p className="text-arc-red">Gap Rate: {formatPercent(stateMap.get(hovered)!.gapRate)}</p>
-            <p>Avg SVI: {formatSvi(stateMap.get(hovered)!.avgSvi)}</p>
+            <p>Total: {formatNumber(hoveredData.total)}</p>
+            <p>Care Rate: {formatPercent(hoveredData.careRate)}</p>
+            <p className="text-arc-red">Gap Rate: {formatPercent(hoveredData.gapRate)}</p>
+            <p>Avg SVI: {formatSvi(hoveredData.avgSvi)}</p>
           </div>
         </div>
       )}
@@ -112,9 +126,113 @@ function StateChoropleth({ data, metric }: { data: StateData[]; metric: Metric }
   );
 }
 
-export default function RegionalDeepDive() {
+function CountyChoropleth({ stateData, metric }: ChoroplethProps) {
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [features, setFeatures] = useState<GeoFeature[]>([]);
+  const [countyData, setCountyData] = useState<CountyData[]>([]);
+
+  useEffect(() => {
+    Promise.all([loadCountiesTopo(), loadCounties()]).then(([topo, counties]) => {
+      setFeatures(parseCountiesTopo(topo));
+      setCountyData(counties);
+    });
+  }, []);
+
+  const countyMap = useMemo(() => new Map(countyData.map(d => [d.fips, d])), [countyData]);
+
+  const maxVal = useMemo(() => {
+    if (countyData.length === 0) return 1;
+    return Math.max(...countyData.map(d => d[metric] as number));
+  }, [countyData, metric]);
+
+  const hoveredCounty = hovered ? countyMap.get(hovered) : null;
+
+  // Pre-compute all paths in a memo to avoid re-rendering 3K paths
+  const renderedPaths = useMemo(() => {
+    return features.map(f => {
+      const d = countyMap.get(f.id);
+      const val = d ? (d[metric] as number) : 0;
+      const fill = d ? getMetricColor(val, maxVal, metric) : '#f8fafc';
+      const hasData = !!d && d.total > 0;
+      return { ...f, fill, hasData };
+    });
+  }, [features, countyMap, maxVal, metric]);
+
+  if (features.length === 0) {
+    return (
+      <div className="animate-pulse h-[400px] bg-arc-gray-100 rounded flex items-center justify-center">
+        <p className="text-xs text-arc-gray-500">Loading 2,997 county boundaries...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="relative"
+      onMouseMove={e => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      }}
+    >
+      <svg viewBox="-10 0 985 620" className="w-full" style={{ maxHeight: 500, willChange: 'opacity' }}>
+        {renderedPaths.map(f => (
+          <path
+            key={f.id}
+            d={f.path}
+            fill={f.fill}
+            stroke="#e2e8f0"
+            strokeWidth={0.3}
+            style={{ cursor: f.hasData ? 'pointer' : 'default' }}
+            onMouseEnter={f.hasData ? () => setHovered(f.id) : undefined}
+            onMouseLeave={f.hasData ? () => setHovered(null) : undefined}
+          />
+        ))}
+      </svg>
+
+      {/* Legend bar */}
+      <div className="flex items-center justify-center gap-1 mt-2 text-[10px] text-arc-gray-500">
+        <span>Low</span>
+        {[0.1, 0.3, 0.5, 0.7, 0.9].map(v => (
+          <div
+            key={v}
+            className="w-8 h-3 rounded-sm"
+            style={{ backgroundColor: getMetricColor(v * maxVal, maxVal, metric) }}
+          />
+        ))}
+        <span>High</span>
+      </div>
+
+      {/* Tooltip follows mouse */}
+      {hoveredCounty && (
+        <div
+          className="absolute bg-white border border-arc-gray-100 rounded p-3 shadow-lg text-xs min-w-[180px] pointer-events-none z-20"
+          style={{
+            left: Math.min(mousePos.x + 12, 600),
+            top: mousePos.y - 10,
+          }}
+        >
+          <p className="font-bold text-sm">{hoveredCounty.county || hoveredCounty.name}</p>
+          <p className="text-[10px] text-arc-gray-500">{hoveredCounty.chapter}</p>
+          <div className="space-y-1 mt-1">
+            <p>Total: {formatNumber(hoveredCounty.total)}</p>
+            <p>Care Rate: {formatPercent(hoveredCounty.careRate)}</p>
+            <p className="text-arc-red">Gap Rate: {formatPercent(hoveredCounty.gapRate)}</p>
+            <p>Avg SVI: {formatSvi(hoveredCounty.avgSvi)}</p>
+            {hoveredCounty.population > 0 && (
+              <p>Population: {formatNumber(hoveredCounty.population)}</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function RegionalDeepDive({ onNavigate }: { onNavigate?: (tab: string, params?: Record<string, string>) => void }) {
   const [states, setStates] = useState<StateData[] | null>(null);
   const [metric, setMetric] = useState<Metric>('total');
+  const [geoLevel, setGeoLevel] = useState<GeoLevel>('state');
   const [sortBy, setSortBy] = useState<'careRate' | 'gapRate' | 'total'>('careRate');
   const [compare, setCompare] = useState<[string | null, string | null]>([null, null]);
 
@@ -133,6 +251,15 @@ export default function RegionalDeepDive() {
 
   const stateA = useMemo(() => states?.find(s => s.state === compare[0]), [states, compare]);
   const stateB = useMemo(() => states?.find(s => s.state === compare[1]), [states, compare]);
+
+  const handleStateClick = useCallback((abbr: string) => {
+    // Set as first comparison state if empty, otherwise second
+    setCompare(prev => {
+      if (!prev[0]) return [abbr, prev[1]];
+      if (!prev[1]) return [prev[0], abbr];
+      return [abbr, prev[1]];
+    });
+  }, []);
 
   // Auto-generated insight
   const insight = useMemo(() => {
@@ -170,9 +297,26 @@ export default function RegionalDeepDive() {
       {/* Choropleth */}
       <div className="bg-white rounded p-5 border border-arc-gray-100">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
-          <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black">
-            State Overview
-          </h3>
+          <div className="flex items-center gap-3">
+            <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black">
+              {geoLevel === 'state' ? 'State' : 'County'} Overview
+            </h3>
+            <div className="flex bg-arc-gray-100 rounded overflow-hidden">
+              {(['state', 'county'] as GeoLevel[]).map(level => (
+                <button
+                  key={level}
+                  onClick={() => setGeoLevel(level)}
+                  className={`px-3 py-1 text-xs font-medium ${
+                    geoLevel === level
+                      ? 'bg-arc-black text-white'
+                      : 'text-arc-gray-700 hover:bg-arc-gray-300'
+                  }`}
+                >
+                  {level === 'state' ? 'State' : 'County'}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex gap-2">
             {([
               ['total', 'Total Fires'],
@@ -194,7 +338,11 @@ export default function RegionalDeepDive() {
             ))}
           </div>
         </div>
-        <StateChoropleth data={states} metric={metric} />
+        {geoLevel === 'state' ? (
+          <StateChoropleth stateData={states} metric={metric} onStateClick={handleStateClick} onNavigate={onNavigate} />
+        ) : (
+          <CountyChoropleth stateData={states} metric={metric} />
+        )}
       </div>
 
       {/* Side-by-side comparison */}
@@ -254,7 +402,7 @@ export default function RegionalDeepDive() {
           </div>
         )}
         {(!stateA || !stateB) && (
-          <p className="text-xs text-arc-gray-500 text-center py-8">Select two states above to compare</p>
+          <p className="text-xs text-arc-gray-500 text-center py-8">Select two states above to compare — or click states on the map</p>
         )}
       </div>
 

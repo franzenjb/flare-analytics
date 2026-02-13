@@ -5,14 +5,15 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, Cell,
 } from 'recharts';
-import { Flame, ShieldCheck, AlertTriangle, Activity } from 'lucide-react';
+import { Flame, ShieldCheck, AlertTriangle, Activity, TrendingUp, TrendingDown } from 'lucide-react';
 import { loadSummary, loadFunnel, loadMonthly, loadRiskDistribution, loadStates } from '@/lib/data-loader';
 import { formatNumber, formatPercent, formatMonth, formatSvi } from '@/lib/format';
 import type { SummaryData, FunnelData, MonthlyData, RiskDistributionData, StateData } from '@/lib/types';
 import { CATEGORY_COLORS } from '@/lib/types';
 
-function KpiCard({ label, value, subtext, icon: Icon, highlight }: {
+function KpiCard({ label, value, subtext, icon: Icon, highlight, delta }: {
   label: string; value: string; subtext?: string; icon: React.ElementType; highlight?: boolean;
+  delta?: { value: string; direction: 'up' | 'down'; good: boolean };
 }) {
   return (
     <div className="bg-white rounded p-5 border border-arc-gray-100">
@@ -23,7 +24,92 @@ function KpiCard({ label, value, subtext, icon: Icon, highlight }: {
       <div className={`font-[family-name:var(--font-data)] text-3xl font-semibold ${highlight ? 'text-arc-red' : 'text-arc-black'}`}>
         {value}
       </div>
+      {delta && (
+        <div className={`flex items-center gap-1 mt-1 text-xs font-[family-name:var(--font-data)] ${
+          delta.good ? 'text-arc-success' : 'text-arc-red'
+        }`}>
+          {delta.direction === 'up' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+          {delta.value} vs median
+        </div>
+      )}
       {subtext && <p className="text-xs text-arc-gray-500 mt-1">{subtext}</p>}
+    </div>
+  );
+}
+
+function CriticalAlerts({ states, monthly }: { states: StateData[]; monthly: MonthlyData[] }) {
+  const alerts = useMemo(() => {
+    const result: { title: string; detail: string; severity: 'critical' | 'warning' }[] = [];
+
+    // States with gapRate > 50% AND total > 1000
+    const highGapStates = states.filter(s => s.gapRate > 50 && s.total > 1000);
+    if (highGapStates.length > 0) {
+      result.push({
+        title: `${highGapStates.length} states with >50% gap rate`,
+        detail: highGapStates.slice(0, 5).map(s => `${s.state} (${formatPercent(s.gapRate)})`).join(', '),
+        severity: 'critical',
+      });
+    }
+
+    // Worsening monthly trend
+    if (monthly.length >= 6) {
+      const first3 = monthly.slice(0, 3).reduce((s, m) => s + m.gap, 0);
+      const last3 = monthly.slice(-3).reduce((s, m) => s + m.gap, 0);
+      if (last3 > first3 * 1.15) {
+        const pctIncrease = ((last3 / first3 - 1) * 100).toFixed(0);
+        result.push({
+          title: `Gap fires trending up ${pctIncrease}%`,
+          detail: `Last 3 months vs first 3 months of 2024`,
+          severity: 'warning',
+        });
+      }
+    }
+
+    // High vulnerability gaps
+    const highVulnGap = states.filter(s => s.avgSvi > 0.65 && s.gapRate > 40);
+    if (highVulnGap.length > 0) {
+      const totalGap = highVulnGap.reduce((s, d) => s + d.gap, 0);
+      result.push({
+        title: `${formatNumber(totalGap)} gap fires in high-vulnerability states`,
+        detail: highVulnGap.slice(0, 5).map(s => `${s.state} (SVI ${formatSvi(s.avgSvi)})`).join(', '),
+        severity: 'critical',
+      });
+    }
+
+    // States with very high volume but below-average care rate
+    const medianCare = [...states].sort((a, b) => a.careRate - b.careRate)[Math.floor(states.length / 2)]?.careRate || 47;
+    const underperformers = states.filter(s => s.total > 2000 && s.careRate < medianCare - 5);
+    if (underperformers.length > 0) {
+      result.push({
+        title: `${underperformers.length} high-volume states below median care rate`,
+        detail: underperformers.slice(0, 4).map(s => `${s.state} (${formatPercent(s.careRate)})`).join(', '),
+        severity: 'warning',
+      });
+    }
+
+    return result.slice(0, 4);
+  }, [states, monthly]);
+
+  if (alerts.length === 0) return null;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {alerts.map((alert, i) => (
+        <div
+          key={i}
+          className={`rounded p-4 border flex items-start gap-3 ${
+            alert.severity === 'critical'
+              ? 'bg-red-50 border-red-200'
+              : 'bg-amber-50 border-amber-200'
+          }`}
+        >
+          <AlertTriangle size={16} className={alert.severity === 'critical' ? 'text-arc-red shrink-0 mt-0.5' : 'text-amber-600 shrink-0 mt-0.5'} />
+          <div>
+            <p className="text-xs font-medium text-arc-black">{alert.title}</p>
+            <p className="text-[10px] text-arc-gray-500 mt-0.5">{alert.detail}</p>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -33,9 +119,9 @@ function EngagementFunnel({ data }: { data: FunnelData }) {
   const stageCount = data.stages.length;
   const svgWidth = 500;
   const svgHeight = stageCount * 70 + 10;
-  const maxTrapWidth = svgWidth - 160; // leave room for labels
-  const labelX = 0; // left side for labels
-  const trapX = 140; // start of trapezoid area
+  const maxTrapWidth = svgWidth - 160;
+  const labelX = 0;
+  const trapX = 140;
 
   return (
     <div className="bg-white rounded p-5 border border-arc-gray-100">
@@ -57,7 +143,6 @@ function EngagementFunnel({ data }: { data: FunnelData }) {
 
           return (
             <g key={stage.label}>
-              {/* Trapezoid shape */}
               <path
                 d={`M ${centerX - topWidth / 2} ${y}
                     L ${centerX + topWidth / 2} ${y}
@@ -66,11 +151,9 @@ function EngagementFunnel({ data }: { data: FunnelData }) {
                 fill={stage.color}
                 opacity={0.85}
               />
-              {/* Stage label (left) */}
               <text x={labelX} y={y + h / 2 + 1} fontSize={11} fill="#4a4a4a" dominantBaseline="middle">
                 {stage.label}
               </text>
-              {/* Value + percent (center of trapezoid) */}
               <text x={centerX} y={y + h / 2 - 4} textAnchor="middle" fontSize={12} fontWeight={600} fill="#ffffff" dominantBaseline="middle"
                 fontFamily="var(--font-data)">
                 {formatNumber(stage.value)}
@@ -79,7 +162,6 @@ function EngagementFunnel({ data }: { data: FunnelData }) {
                 fontFamily="var(--font-data)">
                 {(pct * 100).toFixed(0)}%
               </text>
-              {/* Drop annotation */}
               {lossPct && (
                 <text x={centerX + topWidth / 2 + 8} y={y + 6} fontSize={9} fill="#ED1B2E"
                   fontFamily="var(--font-data)">
@@ -157,7 +239,7 @@ function RiskHistogram({ data }: { data: RiskDistributionData }) {
   );
 }
 
-function TopStates({ data }: { data: StateData[] }) {
+function TopStates({ data, onNavigate }: { data: StateData[]; onNavigate?: (tab: string, params?: Record<string, string>) => void }) {
   const top10 = data.slice(0, 10);
 
   return (
@@ -166,7 +248,17 @@ function TopStates({ data }: { data: StateData[] }) {
         Top 10 States by Volume
       </h3>
       <ResponsiveContainer width="100%" height={320}>
-        <BarChart data={top10} layout="vertical" margin={{ top: 0, right: 5, left: 20, bottom: 0 }}>
+        <BarChart
+          data={top10}
+          layout="vertical"
+          margin={{ top: 0, right: 5, left: 20, bottom: 0 }}
+          onClick={(data) => {
+            if (data?.activeLabel && onNavigate) {
+              onNavigate('regional', { state: String(data.activeLabel) });
+            }
+          }}
+          style={{ cursor: onNavigate ? 'pointer' : 'default' }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" horizontal={false} />
           <XAxis type="number" tick={{ fontSize: 11 }} />
           <YAxis type="category" dataKey="state" tick={{ fontSize: 12, fontWeight: 600 }} width={35} />
@@ -180,11 +272,14 @@ function TopStates({ data }: { data: StateData[] }) {
           <Bar dataKey="gap" name="No Notification" stackId="a" fill={CATEGORY_COLORS.gap} />
         </BarChart>
       </ResponsiveContainer>
+      {onNavigate && (
+        <p className="text-[10px] text-arc-gray-500 text-center mt-2">Click a state to view in Regional Deep Dive</p>
+      )}
     </div>
   );
 }
 
-export default function ExecutiveDashboard() {
+export default function ExecutiveDashboard({ onNavigate }: { onNavigate?: (tab: string, params?: Record<string, string>) => void }) {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [funnel, setFunnel] = useState<FunnelData | null>(null);
   const [monthly, setMonthly] = useState<MonthlyData[] | null>(null);
@@ -195,6 +290,16 @@ export default function ExecutiveDashboard() {
     Promise.all([loadSummary(), loadFunnel(), loadMonthly(), loadRiskDistribution(), loadStates()])
       .then(([s, f, m, r, st]) => { setSummary(s); setFunnel(f); setMonthly(m); setRisk(r); setStates(st); });
   }, []);
+
+  // Compute deltas
+  const deltas = useMemo(() => {
+    if (!states || states.length === 0) return null;
+    const sortedCare = [...states].sort((a, b) => a.careRate - b.careRate);
+    const sortedGap = [...states].sort((a, b) => a.gapRate - b.gapRate);
+    const medianCare = sortedCare[Math.floor(sortedCare.length / 2)].careRate;
+    const medianGap = sortedGap[Math.floor(sortedGap.length / 2)].gapRate;
+    return { medianCare, medianGap };
+  }, [states]);
 
   // Auto-generated insight
   const insight = useMemo(() => {
@@ -248,6 +353,11 @@ export default function ExecutiveDashboard() {
           value={formatPercent(summary.careRate)}
           subtext={`${formatNumber(summary.rcCare)} families served`}
           icon={ShieldCheck}
+          delta={deltas ? {
+            value: `${(summary.careRate - deltas.medianCare).toFixed(1)}pp`,
+            direction: summary.careRate > deltas.medianCare ? 'up' : 'down',
+            good: summary.careRate > deltas.medianCare,
+          } : undefined}
         />
         <KpiCard
           label="Notification Gap"
@@ -255,14 +365,27 @@ export default function ExecutiveDashboard() {
           subtext={`${formatNumber(summary.noNotification)} fires missed`}
           icon={AlertTriangle}
           highlight
+          delta={deltas ? {
+            value: `${(summary.gapRate - deltas.medianGap).toFixed(1)}pp`,
+            direction: summary.gapRate > deltas.medianGap ? 'up' : 'down',
+            good: summary.gapRate < deltas.medianGap,
+          } : undefined}
         />
         <KpiCard
           label="Avg SVI Risk"
           value={formatSvi(summary.avgSviRisk)}
           subtext="Higher = more vulnerable"
           icon={Activity}
+          delta={{
+            value: `${(summary.avgSviRisk - 0.5).toFixed(2)}`,
+            direction: summary.avgSviRisk > 0.5 ? 'up' : 'down',
+            good: summary.avgSviRisk < 0.5,
+          }}
         />
       </div>
+
+      {/* Critical Alerts */}
+      <CriticalAlerts states={states} monthly={monthly} />
 
       {/* Funnel + Monthly Trend */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -273,7 +396,7 @@ export default function ExecutiveDashboard() {
       {/* Risk Histogram + Top States */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <RiskHistogram data={risk} />
-        <TopStates data={states} />
+        <TopStates data={states} onNavigate={onNavigate} />
       </div>
     </div>
   );

@@ -6,10 +6,10 @@ import {
   ResponsiveContainer, ScatterChart, Scatter, ZAxis,
   Legend, LineChart, Line,
 } from 'recharts';
-import { ChevronRight, ArrowLeft } from 'lucide-react';
-import { loadDivisions, loadRegions, loadChapters, loadCounties } from '@/lib/data-loader';
+import { ChevronRight, ArrowLeft, AlertTriangle } from 'lucide-react';
+import { loadDivisions, loadRegions, loadChapters, loadCounties, loadSummary } from '@/lib/data-loader';
 import { formatNumber, formatPercent, formatSvi, formatCompact } from '@/lib/format';
-import type { OrgUnitData, CountyData } from '@/lib/types';
+import type { OrgUnitData, CountyData, SummaryData } from '@/lib/types';
 import { CATEGORY_COLORS } from '@/lib/types';
 
 type DrillLevel = 'division' | 'region' | 'chapter' | 'county';
@@ -21,21 +21,37 @@ interface DrillState {
   chapterName?: string;
 }
 
-export default function OrganizationView() {
+function trendDirection(monthly: { total: number }[] | undefined): 'worsening' | 'improving' | 'stable' {
+  if (!monthly || monthly.length < 6) return 'stable';
+  const first3 = monthly.slice(0, 3).reduce((s, m) => s + m.total, 0);
+  const last3 = monthly.slice(-3).reduce((s, m) => s + m.total, 0);
+  if (last3 > first3 * 1.1) return 'worsening';
+  if (last3 < first3 * 0.9) return 'improving';
+  return 'stable';
+}
+
+export default function OrganizationView({ onNavigate, initialDrill }: {
+  onNavigate?: (tab: string, params?: Record<string, string>) => void;
+  initialDrill?: DrillState;
+}) {
   const [divisions, setDivisions] = useState<OrgUnitData[] | null>(null);
   const [regions, setRegions] = useState<OrgUnitData[] | null>(null);
   const [chapters, setChapters] = useState<OrgUnitData[] | null>(null);
   const [counties, setCounties] = useState<CountyData[] | null>(null);
-  const [drill, setDrill] = useState<DrillState>({ level: 'division' });
+  const [summary, setSummary] = useState<SummaryData | null>(null);
+  const [drill, setDrill] = useState<DrillState>(initialDrill || { level: 'division' });
   const [sortBy, setSortBy] = useState<'total' | 'gapRate' | 'firesPer10k'>('total');
+  const [showAtRisk, setShowAtRisk] = useState(false);
+  const [compareChapters, setCompareChapters] = useState<[string | null, string | null]>([null, null]);
 
   useEffect(() => {
-    Promise.all([loadDivisions(), loadRegions(), loadChapters(), loadCounties()])
-      .then(([d, r, ch, co]) => {
+    Promise.all([loadDivisions(), loadRegions(), loadChapters(), loadCounties(), loadSummary()])
+      .then(([d, r, ch, co, s]) => {
         setDivisions(d);
         setRegions(r);
         setChapters(ch);
         setCounties(co);
+        setSummary(s);
       });
   }, []);
 
@@ -49,7 +65,6 @@ export default function OrganizationView() {
       case 'region':
         return drill.divisionName
           ? regions.filter(r => {
-              // Match regions to division via county data
               const regionCounties = counties.filter(c => c.region === r.name);
               return regionCounties.some(c => c.division === drill.divisionName);
             })
@@ -70,12 +85,43 @@ export default function OrganizationView() {
 
   const sortedData = useMemo(() => {
     if (!currentData.length) return [];
-    return [...currentData].sort((a, b) => {
+    let data = [...currentData].sort((a, b) => {
       if (sortBy === 'gapRate') return b.gapRate - a.gapRate;
       if (sortBy === 'firesPer10k') return (b.firesPer10k || 0) - (a.firesPer10k || 0);
       return b.total - a.total;
     });
-  }, [currentData, sortBy]);
+    // At-risk filter: gapRate > national avg (40.1%) AND avgSvi >= 0.6
+    if (showAtRisk && summary) {
+      data = data.filter(d => d.gapRate > summary.gapRate && d.avgSvi >= 0.6);
+    }
+    return data;
+  }, [currentData, sortBy, showAtRisk, summary]);
+
+  // Peer comparison context
+  const peerContext = useMemo(() => {
+    if (!divisions || !regions || !chapters || !counties) return null;
+
+    if (drill.level === 'region' && drill.divisionName) {
+      // Show current region's rank within its division
+      const divRegions = regions.filter(r => {
+        const rc = counties.filter(c => c.region === r.name);
+        return rc.some(c => c.division === drill.divisionName);
+      });
+      const divAvgGap = divRegions.reduce((s, r) => s + r.gapRate, 0) / divRegions.length;
+      const divAvgCare = divRegions.reduce((s, r) => s + r.careRate, 0) / divRegions.length;
+      return { parentName: drill.divisionName, peerCount: divRegions.length, avgGap: divAvgGap, avgCare: divAvgCare, level: 'region' as const };
+    }
+    if (drill.level === 'chapter' && drill.regionName) {
+      const regChapters = chapters.filter(ch => {
+        const cc = counties.filter(c => c.chapter === ch.name);
+        return cc.some(c => c.region === drill.regionName);
+      });
+      const avgGap = regChapters.reduce((s, c) => s + c.gapRate, 0) / regChapters.length;
+      const avgCare = regChapters.reduce((s, c) => s + c.careRate, 0) / regChapters.length;
+      return { parentName: drill.regionName, peerCount: regChapters.length, avgGap, avgCare, level: 'chapter' as const };
+    }
+    return null;
+  }, [divisions, regions, chapters, counties, drill]);
 
   // Insight
   const insight = useMemo(() => {
@@ -124,8 +170,8 @@ export default function OrganizationView() {
     );
   }
 
-  // Top bar chart data (top 15 by current sort)
-  const chartData = sortedData.slice(0, 15).map(d => ({
+  // Top bar chart data (top 20)
+  const chartData = sortedData.slice(0, 20).map(d => ({
     name: d.name.length > 25 ? d.name.substring(0, 22) + '...' : d.name,
     fullName: d.name,
     'RC Care': d.care,
@@ -151,6 +197,10 @@ export default function OrganizationView() {
 
   const levelLabel = drill.level.charAt(0).toUpperCase() + drill.level.slice(1);
 
+  // Chapter comparison
+  const chapA = chapters.find(c => c.name === compareChapters[0]);
+  const chapB = chapters.find(c => c.name === compareChapters[1]);
+
   return (
     <div className="space-y-6">
       <div>
@@ -165,88 +215,122 @@ export default function OrganizationView() {
       </div>
 
       {/* Breadcrumb + Drill Navigation */}
-      <div className="flex items-center gap-2 text-sm">
-        {drill.level !== 'division' && (
-          <button
-            onClick={drillUp}
-            className="flex items-center gap-1 text-arc-gray-500 hover:text-arc-black"
-          >
-            <ArrowLeft size={14} />
-            Back
-          </button>
-        )}
-        <div className="flex items-center gap-1 text-xs text-arc-gray-500">
-          <button
-            onClick={() => setDrill({ level: 'division' })}
-            className={`hover:text-arc-black ${drill.level === 'division' ? 'font-bold text-arc-black' : ''}`}
-          >
-            Divisions
-          </button>
-          {drill.divisionName && (
-            <>
-              <ChevronRight size={12} />
-              <button
-                onClick={() => setDrill({ level: 'region', divisionName: drill.divisionName })}
-                className={`hover:text-arc-black ${drill.level === 'region' ? 'font-bold text-arc-black' : ''}`}
-              >
-                {drill.divisionName}
-              </button>
-            </>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm">
+          {drill.level !== 'division' && (
+            <button
+              onClick={drillUp}
+              className="flex items-center gap-1 text-arc-gray-500 hover:text-arc-black"
+            >
+              <ArrowLeft size={14} />
+              Back
+            </button>
           )}
-          {drill.regionName && (
-            <>
-              <ChevronRight size={12} />
-              <button
-                onClick={() => setDrill({ ...drill, level: 'chapter' })}
-                className={`hover:text-arc-black ${drill.level === 'chapter' ? 'font-bold text-arc-black' : ''}`}
-              >
-                {drill.regionName}
-              </button>
-            </>
-          )}
-          {drill.chapterName && (
-            <>
-              <ChevronRight size={12} />
-              <span className="font-bold text-arc-black">{drill.chapterName}</span>
-            </>
-          )}
+          <div className="flex items-center gap-1 text-xs text-arc-gray-500">
+            <button
+              onClick={() => setDrill({ level: 'division' })}
+              className={`hover:text-arc-black ${drill.level === 'division' ? 'font-bold text-arc-black' : ''}`}
+            >
+              Divisions
+            </button>
+            {drill.divisionName && (
+              <>
+                <ChevronRight size={12} />
+                <button
+                  onClick={() => setDrill({ level: 'region', divisionName: drill.divisionName })}
+                  className={`hover:text-arc-black ${drill.level === 'region' ? 'font-bold text-arc-black' : ''}`}
+                >
+                  {drill.divisionName}
+                </button>
+              </>
+            )}
+            {drill.regionName && (
+              <>
+                <ChevronRight size={12} />
+                <button
+                  onClick={() => setDrill({ ...drill, level: 'chapter' })}
+                  className={`hover:text-arc-black ${drill.level === 'chapter' ? 'font-bold text-arc-black' : ''}`}
+                >
+                  {drill.regionName}
+                </button>
+              </>
+            )}
+            {drill.chapterName && (
+              <>
+                <ChevronRight size={12} />
+                <span className="font-bold text-arc-black">{drill.chapterName}</span>
+              </>
+            )}
+          </div>
         </div>
+        {/* At-Risk toggle */}
+        <button
+          onClick={() => setShowAtRisk(v => !v)}
+          className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded ${
+            showAtRisk
+              ? 'bg-red-50 text-arc-red border border-red-200'
+              : 'bg-arc-gray-100 text-arc-gray-700 hover:bg-arc-gray-300'
+          }`}
+        >
+          <AlertTriangle size={12} />
+          {showAtRisk ? 'At-Risk Only' : 'Flag At-Risk'}
+        </button>
       </div>
+
+      {/* Peer comparison context bar */}
+      {peerContext && sortedData.length > 0 && (
+        <div className="bg-arc-cream rounded px-4 py-3 text-xs flex flex-wrap gap-x-6 gap-y-1">
+          <span className="font-medium text-arc-black">
+            {peerContext.peerCount} {peerContext.level}s in {peerContext.parentName}
+          </span>
+          <span>
+            Avg Gap Rate: <span className="font-[family-name:var(--font-data)] text-arc-red">{formatPercent(peerContext.avgGap)}</span>
+          </span>
+          <span>
+            Avg Care Rate: <span className="font-[family-name:var(--font-data)] text-arc-success">{formatPercent(peerContext.avgCare)}</span>
+          </span>
+        </div>
+      )}
 
       {/* Division Summary Cards (only at top level) */}
       {drill.level === 'division' && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {divisions.map(d => (
-            <button
-              key={d.name}
-              onClick={() => drillDown(d.name)}
-              className="bg-white rounded p-4 border border-arc-gray-100 hover:border-arc-red transition-colors text-left group"
-            >
-              <p className="text-xs text-arc-gray-500 truncate">{d.name}</p>
-              <p className="font-[family-name:var(--font-data)] text-lg font-bold mt-1">
-                {formatCompact(d.total)}
-              </p>
-              <div className="flex justify-between text-[10px] mt-2">
-                <span className="text-arc-red">{formatPercent(d.gapRate)} gap</span>
-                <span className="text-arc-gray-500">{formatNumber(d.firesPer10k)}/10k</span>
-              </div>
-              <div className="h-1.5 bg-arc-gray-100 rounded-full mt-2 overflow-hidden">
-                <div className="h-full bg-arc-red rounded-full" style={{ width: `${d.gapRate}%` }} />
-              </div>
-              {d.monthly && d.monthly.length > 1 && (
-                <div className="h-6 mt-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={d.monthly}>
-                      <Line type="monotone" dataKey="total" stroke="#a3a3a3" strokeWidth={1} dot={false} isAnimationActive={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
+          {divisions.map(d => {
+            const isAtRisk = summary && d.gapRate > summary.gapRate && d.avgSvi >= 0.6;
+            return (
+              <button
+                key={d.name}
+                onClick={() => drillDown(d.name)}
+                className={`bg-white rounded p-4 border hover:border-arc-red transition-colors text-left group ${
+                  isAtRisk && showAtRisk ? 'border-l-4 border-l-arc-red border-arc-gray-100' : 'border-arc-gray-100'
+                }`}
+              >
+                <p className="text-xs text-arc-gray-500 truncate">{d.name}</p>
+                <p className="font-[family-name:var(--font-data)] text-lg font-bold mt-1">
+                  {formatCompact(d.total)}
+                </p>
+                <div className="flex justify-between text-[10px] mt-2">
+                  <span className="text-arc-red">{formatPercent(d.gapRate)} gap</span>
+                  <span className="text-arc-gray-500">{formatNumber(d.firesPer10k)}/10k</span>
                 </div>
-              )}
-              <p className="text-[10px] text-arc-gray-500 mt-1 group-hover:text-arc-red transition-colors">
-                {d.countyCount} counties · Click to drill →
-              </p>
-            </button>
-          ))}
+                <div className="h-1.5 bg-arc-gray-100 rounded-full mt-2 overflow-hidden">
+                  <div className="h-full bg-arc-red rounded-full" style={{ width: `${d.gapRate}%` }} />
+                </div>
+                {d.monthly && d.monthly.length > 1 && (
+                  <div className="h-6 mt-2">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={d.monthly}>
+                        <Line type="monotone" dataKey="total" stroke="#a3a3a3" strokeWidth={1} dot={false} isAnimationActive={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                <p className="text-[10px] text-arc-gray-500 mt-1 group-hover:text-arc-red transition-colors">
+                  {d.countyCount} counties · Click to drill →
+                </p>
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -254,7 +338,7 @@ export default function OrganizationView() {
       <div className="bg-white rounded p-5 border border-arc-gray-100">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
           <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black">
-            Top {Math.min(sortedData.length, 15)} {levelLabel}s by {sortBy === 'total' ? 'Volume' : sortBy === 'gapRate' ? 'Gap Rate' : 'Per Capita Rate'}
+            Top {Math.min(sortedData.length, 20)} {levelLabel}s by {sortBy === 'total' ? 'Volume' : sortBy === 'gapRate' ? 'Gap Rate' : 'Per Capita Rate'}
           </h3>
           <div className="flex gap-2">
             {([
@@ -316,18 +400,24 @@ export default function OrganizationView() {
             </thead>
             <tbody>
               {sortedData.slice(0, 50).map((d, i) => {
-                // Heat-color helpers
                 const careHeat = d.careRate >= 55 ? 'bg-green-50' : d.careRate < 35 ? 'bg-red-50' : '';
                 const gapHeat = d.gapRate >= 45 ? 'bg-red-50' : d.gapRate < 30 ? 'bg-green-50' : '';
                 const rowStripe = i % 2 === 1 ? 'bg-arc-cream/30' : '';
+                const isAtRisk = summary && d.gapRate > summary.gapRate && d.avgSvi >= 0.6;
+                const trend = trendDirection(d.monthly);
                 return (
                   <tr
                     key={d.name}
-                    className={`border-b border-arc-gray-100 ${rowStripe} ${drill.level !== 'county' ? 'cursor-pointer hover:bg-arc-cream/50' : ''}`}
+                    className={`border-b border-arc-gray-100 ${rowStripe} ${drill.level !== 'county' ? 'cursor-pointer hover:bg-arc-cream/50' : ''} ${
+                      isAtRisk && showAtRisk ? 'border-l-4 border-l-arc-red' : ''
+                    }`}
                     onClick={() => drill.level !== 'county' && drillDown(d.name)}
                   >
                     <td className="py-2 px-2 text-arc-gray-500 font-[family-name:var(--font-data)]">{i + 1}</td>
-                    <td className="py-2 px-2 font-medium max-w-[200px] truncate">{d.name}</td>
+                    <td className="py-2 px-2 font-medium max-w-[200px] truncate">
+                      {isAtRisk && showAtRisk && <AlertTriangle size={10} className="inline text-arc-red mr-1" />}
+                      {d.name}
+                    </td>
                     <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatNumber(d.total)}</td>
                     <td className={`py-2 px-2 text-right font-[family-name:var(--font-data)] text-arc-success ${careHeat}`}>{formatPercent(d.careRate)}</td>
                     <td className={`py-2 px-2 text-right font-[family-name:var(--font-data)] text-arc-red ${gapHeat}`}>{formatPercent(d.gapRate)}</td>
@@ -336,13 +426,13 @@ export default function OrganizationView() {
                     <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{(d.firesPer10k || 0).toFixed(1)}</td>
                     <td className="py-1 px-1">
                       {d.monthly && d.monthly.length > 1 && (
-                        <div className="w-16 h-5 mx-auto">
+                        <div className="w-24 h-8 mx-auto">
                           <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={d.monthly}>
                               <Line
                                 type="monotone"
                                 dataKey="total"
-                                stroke={d.gapRate >= 45 ? '#ED1B2E' : '#4a4a4a'}
+                                stroke={trend === 'worsening' ? '#ED1B2E' : trend === 'improving' ? '#2d5a27' : '#4a4a4a'}
                                 strokeWidth={1.5}
                                 dot={false}
                                 isAnimationActive={false}
@@ -367,6 +457,69 @@ export default function OrganizationView() {
           <p className="text-xs text-arc-gray-500 mt-2 text-center">
             Showing top 50 of {formatNumber(sortedData.length)} {drill.level}s
           </p>
+        )}
+      </div>
+
+      {/* Chapter Comparison Tool */}
+      <div className="bg-white rounded p-5 border border-arc-gray-100">
+        <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black mb-4">
+          Chapter Comparison
+        </h3>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          {[0, 1].map(idx => (
+            <select
+              key={idx}
+              value={compareChapters[idx] || ''}
+              onChange={e => {
+                const val = e.target.value || null;
+                setCompareChapters(prev => {
+                  const next = [...prev] as [string | null, string | null];
+                  next[idx] = val;
+                  return next;
+                });
+              }}
+              className="px-3 py-2 text-xs border border-arc-gray-100 rounded bg-arc-cream"
+            >
+              <option value="">Select chapter...</option>
+              {chapters.map(c => (
+                <option key={c.name} value={c.name}>{c.name} ({formatNumber(c.total)})</option>
+              ))}
+            </select>
+          ))}
+        </div>
+        {chapA && chapB ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b-2 border-arc-black">
+                  <th className="text-left py-2 px-2 text-arc-gray-500">Metric</th>
+                  <th className="text-right py-2 px-2 font-bold">{chapA.name.length > 30 ? chapA.name.substring(0, 27) + '...' : chapA.name}</th>
+                  <th className="text-right py-2 px-2 font-bold">{chapB.name.length > 30 ? chapB.name.substring(0, 27) + '...' : chapB.name}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ['Total Fires', formatNumber(chapA.total), formatNumber(chapB.total)],
+                  ['RC Care', formatNumber(chapA.care), formatNumber(chapB.care)],
+                  ['No Notification', formatNumber(chapA.gap), formatNumber(chapB.gap)],
+                  ['Care Rate', formatPercent(chapA.careRate), formatPercent(chapB.careRate)],
+                  ['Gap Rate', formatPercent(chapA.gapRate), formatPercent(chapB.gapRate)],
+                  ['Avg SVI', formatSvi(chapA.avgSvi), formatSvi(chapB.avgSvi)],
+                  ['Counties', formatNumber(chapA.countyCount), formatNumber(chapB.countyCount)],
+                  ['Population', formatCompact(chapA.population), formatCompact(chapB.population)],
+                  ['Fires Per 10k', (chapA.firesPer10k || 0).toFixed(1), (chapB.firesPer10k || 0).toFixed(1)],
+                ].map(([label, a, b]) => (
+                  <tr key={label} className="border-b border-arc-gray-100">
+                    <td className="py-2 px-2 text-arc-gray-500">{label}</td>
+                    <td className="py-2 px-2 text-right font-[family-name:var(--font-data)] font-medium">{a}</td>
+                    <td className="py-2 px-2 text-right font-[family-name:var(--font-data)] font-medium">{b}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-xs text-arc-gray-500 text-center py-6">Select two chapters above to compare side-by-side</p>
         )}
       </div>
 

@@ -5,13 +5,12 @@ import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, ReferenceArea,
 } from 'recharts';
-import { AlertTriangle } from 'lucide-react';
-import { loadGapAnalysis, loadSummary } from '@/lib/data-loader';
-import { formatNumber, formatPercent, formatSvi } from '@/lib/format';
-import type { GapAnalysisData, SummaryData, RiskDistributionData } from '@/lib/types';
+import { AlertTriangle, Target, Clock, Eye } from 'lucide-react';
+import { loadGapAnalysis, loadSummary, loadChapters } from '@/lib/data-loader';
+import { formatNumber, formatPercent, formatSvi, formatCompact } from '@/lib/format';
+import type { GapAnalysisData, SummaryData, OrgUnitData } from '@/lib/types';
 
 function PriorityMatrix({ data }: { data: GapAnalysisData[] }) {
-  // Median values for quadrant lines
   const medianSvi = data.length > 0
     ? [...data].sort((a, b) => a.avgSvi - b.avgSvi)[Math.floor(data.length / 2)].avgSvi
     : 0.5;
@@ -28,7 +27,6 @@ function PriorityMatrix({ data }: { data: GapAnalysisData[] }) {
       <ResponsiveContainer width="100%" height={400}>
         <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
-          {/* Critical quadrant highlight */}
           <ReferenceArea
             x1={medianSvi}
             x2={1}
@@ -191,13 +189,155 @@ function OpportunityTable({ data }: { data: GapAnalysisData[] }) {
   );
 }
 
+function ActionTiers({ data }: { data: GapAnalysisData[] }) {
+  const tiers = useMemo(() => {
+    const tier1 = data.filter(d => d.opportunityScore >= 1000);
+    const tier2 = data.filter(d => d.opportunityScore >= 500 && d.opportunityScore < 1000);
+    const tier3 = data.filter(d => d.opportunityScore >= 200 && d.opportunityScore < 500);
+    return [
+      {
+        level: 'Tier 1 — Immediate Priority',
+        icon: AlertTriangle,
+        color: 'border-l-arc-red bg-red-50',
+        iconColor: 'text-arc-red',
+        action: 'Establish automatic notification agreements with fire departments. Deploy liaisons to build relationships with departments that have zero or minimal RC contact.',
+        states: tier1,
+      },
+      {
+        level: 'Tier 2 — High Priority',
+        icon: Target,
+        color: 'border-l-amber-500 bg-amber-50',
+        iconColor: 'text-amber-600',
+        action: 'Regional coordinator engagement — schedule quarterly check-ins with fire departments. Review notification workflows for breakdowns.',
+        states: tier2,
+      },
+      {
+        level: 'Tier 3 — Monitoring',
+        icon: Eye,
+        color: 'border-l-blue-500 bg-blue-50',
+        iconColor: 'text-blue-600',
+        action: 'Quarterly trend review — track gap rate direction. Escalate to Tier 2 if worsening over two consecutive quarters.',
+        states: tier3,
+      },
+    ];
+  }, [data]);
+
+  return (
+    <div className="space-y-3">
+      <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black">
+        Recommended Actions
+      </h3>
+      {tiers.map(tier => (
+        <div key={tier.level} className={`rounded p-4 border-l-4 ${tier.color}`}>
+          <div className="flex items-start gap-3">
+            <tier.icon size={16} className={`${tier.iconColor} shrink-0 mt-0.5`} />
+            <div>
+              <p className="text-xs font-bold text-arc-black">{tier.level}</p>
+              <p className="text-xs text-arc-gray-700 mt-1">{tier.action}</p>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {tier.states.map(s => (
+                  <span key={s.state} className="px-2 py-0.5 bg-white rounded text-[10px] font-[family-name:var(--font-data)] font-medium border border-arc-gray-100">
+                    {s.state} ({s.opportunityScore.toFixed(0)})
+                  </span>
+                ))}
+                {tier.states.length === 0 && (
+                  <span className="text-[10px] text-arc-gray-500">No states in this tier</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChapterGapRatio({ chapters }: { chapters: OrgUnitData[] }) {
+  const [sortCol, setSortCol] = useState<'ratio' | 'gap' | 'gapRate'>('ratio');
+
+  const tableData = useMemo(() => {
+    return chapters
+      .filter(c => c.countyCount > 0 && c.gap > 0)
+      .map(c => ({
+        name: c.name,
+        gap: c.gap,
+        countyCount: c.countyCount,
+        ratio: c.gap / c.countyCount,
+        gapRate: c.gapRate,
+        total: c.total,
+        population: c.population,
+      }))
+      .sort((a, b) => {
+        if (sortCol === 'gap') return b.gap - a.gap;
+        if (sortCol === 'gapRate') return b.gapRate - a.gapRate;
+        return b.ratio - a.ratio;
+      })
+      .slice(0, 20);
+  }, [chapters, sortCol]);
+
+  return (
+    <div className="bg-white rounded p-5 border border-arc-gray-100">
+      <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black mb-1">
+        Chapter Gap-to-Coverage Ratio
+      </h3>
+      <p className="text-xs text-arc-gray-500 mb-4">
+        Gap fires per county — a proxy for how stretched each chapter is
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b-2 border-arc-black">
+              <th className="text-left py-2 px-2 text-arc-gray-500">#</th>
+              <th className="text-left py-2 px-2 text-arc-gray-500">Chapter</th>
+              <th
+                onClick={() => setSortCol('ratio')}
+                className={`text-right py-2 px-2 cursor-pointer ${sortCol === 'ratio' ? 'text-arc-red font-bold' : 'text-arc-gray-500'}`}
+              >
+                Gap/County {sortCol === 'ratio' ? '▼' : ''}
+              </th>
+              <th
+                onClick={() => setSortCol('gap')}
+                className={`text-right py-2 px-2 cursor-pointer ${sortCol === 'gap' ? 'text-arc-red font-bold' : 'text-arc-gray-500'}`}
+              >
+                Gap Fires {sortCol === 'gap' ? '▼' : ''}
+              </th>
+              <th className="text-right py-2 px-2 text-arc-gray-500">Counties</th>
+              <th
+                onClick={() => setSortCol('gapRate')}
+                className={`text-right py-2 px-2 cursor-pointer ${sortCol === 'gapRate' ? 'text-arc-red font-bold' : 'text-arc-gray-500'}`}
+              >
+                Gap Rate {sortCol === 'gapRate' ? '▼' : ''}
+              </th>
+              <th className="text-right py-2 px-2 text-arc-gray-500">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tableData.map((row, i) => (
+              <tr key={row.name} className={`border-b border-arc-gray-100 ${i % 2 === 1 ? 'bg-arc-cream/30' : ''}`}>
+                <td className="py-2 px-2 text-arc-gray-500">{i + 1}</td>
+                <td className="py-2 px-2 font-medium max-w-[200px] truncate">{row.name}</td>
+                <td className="py-2 px-2 text-right font-[family-name:var(--font-data)] font-medium text-arc-red">{row.ratio.toFixed(1)}</td>
+                <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatNumber(row.gap)}</td>
+                <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{row.countyCount}</td>
+                <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatPercent(row.gapRate)}</td>
+                <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatNumber(row.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function GapAnalysis() {
   const [gapData, setGapData] = useState<GapAnalysisData[] | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);
+  const [chapters, setChapters] = useState<OrgUnitData[] | null>(null);
 
   useEffect(() => {
-    Promise.all([loadGapAnalysis(), loadSummary()])
-      .then(([g, s]) => { setGapData(g); setSummary(s); });
+    Promise.all([loadGapAnalysis(), loadSummary(), loadChapters()])
+      .then(([g, s, ch]) => { setGapData(g); setSummary(s); setChapters(ch); });
   }, []);
 
   if (!gapData || !summary) {
@@ -209,7 +349,6 @@ export default function GapAnalysis() {
     );
   }
 
-  // Compute high-vulnerability gap estimate (SVI > 0.6)
   const criticalStates = gapData.filter(d => d.avgSvi >= 0.6);
   const highVulnGap = criticalStates.reduce((sum, d) => sum + d.gapCount, 0);
 
@@ -278,6 +417,12 @@ export default function GapAnalysis() {
 
       {/* Opportunity Table */}
       <OpportunityTable data={gapData} />
+
+      {/* Action Tiers */}
+      <ActionTiers data={gapData} />
+
+      {/* Chapter Gap-to-Coverage Ratio */}
+      {chapters && <ChapterGapRatio chapters={chapters} />}
     </div>
   );
 }

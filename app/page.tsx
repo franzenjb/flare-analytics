@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, lazy, Suspense, useCallback } from 'react';
+import { useState, lazy, Suspense, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import type { TabId } from '@/lib/types';
 import {
@@ -54,11 +54,53 @@ function Dashboard() {
   const initialTab = tabParam && VALID_TABS.has(tabParam) ? tabParam : 'executive';
   const [activeTab, setActiveTabState] = useState<TabId>(initialTab);
 
+  // Parse URL params for cross-tab navigation
+  const urlParams = useMemo(() => ({
+    state: searchParams.get('state') || undefined,
+    division: searchParams.get('div') || undefined,
+    region: searchParams.get('reg') || undefined,
+    chapter: searchParams.get('ch') || undefined,
+  }), [searchParams]);
+
   const setActiveTab = useCallback((tab: TabId) => {
     setActiveTabState(tab);
     const url = tab === 'executive' ? '/' : `/?tab=${tab}`;
     router.replace(url, { scroll: false });
   }, [router]);
+
+  // Cross-tab navigation: navigates to target tab with optional params
+  const navigateTo = useCallback((tab: string, params?: Record<string, string>) => {
+    const targetTab = tab as TabId;
+    if (!VALID_TABS.has(targetTab)) return;
+
+    setActiveTabState(targetTab);
+
+    // Build URL with params
+    const urlParts = [`tab=${targetTab}`];
+    if (params) {
+      if (params.state) urlParts.push(`state=${encodeURIComponent(params.state)}`);
+      if (params.division) urlParts.push(`div=${encodeURIComponent(params.division)}`);
+      if (params.region) urlParts.push(`reg=${encodeURIComponent(params.region)}`);
+      if (params.chapter) urlParts.push(`ch=${encodeURIComponent(params.chapter)}`);
+    }
+
+    const url = targetTab === 'executive' && !params ? '/' : `/?${urlParts.join('&')}`;
+    router.replace(url, { scroll: false });
+  }, [router]);
+
+  // Build initial drill state for OrganizationView from URL params
+  const initialOrgDrill = useMemo(() => {
+    if (urlParams.chapter && urlParams.region && urlParams.division) {
+      return { level: 'county' as const, divisionName: urlParams.division, regionName: urlParams.region, chapterName: urlParams.chapter };
+    }
+    if (urlParams.region && urlParams.division) {
+      return { level: 'chapter' as const, divisionName: urlParams.division, regionName: urlParams.region };
+    }
+    if (urlParams.division) {
+      return { level: 'region' as const, divisionName: urlParams.division };
+    }
+    return undefined;
+  }, [urlParams]);
 
   return (
     <div className="min-h-screen bg-arc-cream">
@@ -119,13 +161,13 @@ function Dashboard() {
       {/* Tab Content */}
       <main id={`tabpanel-${activeTab}`} role="tabpanel" aria-label={TABS.find(t => t.id === activeTab)?.label} className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Suspense fallback={<TabSkeleton />}>
-          {activeTab === 'executive' && <ExecutiveDashboard />}
-          {activeTab === 'map' && <MapExplorer />}
+          {activeTab === 'executive' && <ExecutiveDashboard onNavigate={navigateTo} />}
+          {activeTab === 'map' && <MapExplorer initialState={urlParams.state} />}
           {activeTab === 'gap' && <GapAnalysis />}
           {activeTab === 'temporal' && <TemporalPatterns />}
           {activeTab === 'departments' && <DepartmentIntel />}
-          {activeTab === 'regional' && <RegionalDeepDive />}
-          {activeTab === 'organization' && <OrganizationView />}
+          {activeTab === 'regional' && <RegionalDeepDive onNavigate={navigateTo} />}
+          {activeTab === 'organization' && <OrganizationView onNavigate={navigateTo} initialDrill={initialOrgDrill} />}
         </Suspense>
       </main>
 

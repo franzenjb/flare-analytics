@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { useFlare } from '@/lib/context';
 import { loadFirePoints, loadFireStations, loadStatesTopo, loadCountiesTopo } from '@/lib/data-loader';
-import { parseStatesTopo, parseCountiesTopo, getMetricColor, getLabelColor, LABEL_STATES, STATE_TO_FIPS, type GeoFeature } from '@/lib/geo-utils';
+import { parseStatesTopo, parseCountiesTopo, getMetricColor, getLabelColor, LABEL_STATES, STATE_TO_FIPS, FIPS_TO_STATE, type GeoFeature } from '@/lib/geo-utils';
 import { formatNumber, formatCompact, formatPercent, formatSvi, formatCurrency } from '@/lib/format';
 import { bucketBySvi, computeEquityGap } from '@/lib/svi';
 import type { FirePointsData, FireStationsData, CountyData } from '@/lib/types';
@@ -32,9 +32,9 @@ const METRIC_OPTIONS: { key: ChoroplethMetric; label: string }[] = [
 ];
 
 const CATEGORY_RGB: Record<number, [number, number, number]> = {
-  0: [45, 90, 39],
-  1: [30, 74, 109],
-  2: [237, 27, 46],
+  0: [34, 139, 34],   // care — vivid green
+  1: [30, 100, 200],  // notification — bright blue
+  2: [220, 38, 38],   // gap — strong red
 };
 
 interface PointDatum {
@@ -151,8 +151,28 @@ function ChoroplethMap({ features, dataMap, metric, geoLevel, selectedFips, onSe
 
   const metricType = metric;
 
+  // Auto-zoom viewBox when filtering
+  const viewBox = useMemo(() => {
+    if (!filteredFips) return '0 0 975 610';
+    const filtered = features.filter(f => filteredFips.has(f.id));
+    if (filtered.length === 0) return '0 0 975 610';
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const f of filtered) {
+      const [x, y] = f.centroid;
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    }
+
+    const spanX = maxX - minX || 100;
+    const spanY = maxY - minY || 60;
+    const pad = Math.max(spanX, spanY) * 0.4 + 80;
+
+    return `${Math.max(0, minX - pad)} ${Math.max(0, minY - pad)} ${Math.max(100, spanX + pad * 2)} ${Math.max(60, spanY + pad * 2)}`;
+  }, [features, filteredFips]);
+
   return (
-    <svg viewBox="0 0 975 610" className="w-full" style={{ maxHeight: 500 }}>
+    <svg viewBox={viewBox} className="w-full" style={{ maxHeight: 500 }}>
       {features.map(f => {
         const data = dataMap.get(f.id);
         const value = data?.[metric] || 0;
@@ -212,6 +232,7 @@ function DeckGLPointMap({ points, filters, hierarchy, stations, showStations }: 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const deckRefInternal = useRef<unknown>(null);
   const mapRefInternal = useRef<unknown>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   const { filteredCounties: globalFilteredCounties } = useFlare();
   const globalFilters = useFlare().filters;
@@ -256,6 +277,15 @@ function DeckGLPointMap({ points, filters, hierarchy, stations, showStations }: 
         const chIdx = points.ch?.[i] ?? -1;
         if (chIdx < 0 || !chapterFilterSet.has(chIdx)) continue;
       }
+
+      // State filter via FIPS prefix
+      if (stateFilter) {
+        const fips = points.fips[i];
+        if (!fips || FIPS_TO_STATE[fips.slice(0, 2)] !== stateFilter) continue;
+      }
+
+      // County filter via direct FIPS match
+      if (globalFilters.county && points.fips[i] !== globalFilters.county) continue;
 
       const chIdx = points.ch?.[i] ?? -1;
       const rgIdx = points.rg?.[i] ?? -1;
@@ -341,6 +371,7 @@ function DeckGLPointMap({ points, filters, hierarchy, stations, showStations }: 
         });
         map.addControl(overlay);
         deckRefInternal.current = overlay;
+        setMapReady(true);
       });
     });
 
@@ -378,14 +409,14 @@ function DeckGLPointMap({ points, filters, hierarchy, stations, showStations }: 
             data: stationData,
             getPosition: (d: StationDatum) => d.position,
             getIcon: () => ({
-              url: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><polygon points="16,2 20.9,11.8 31.6,13.4 23.8,20.4 25.8,31 16,25.8 6.2,31 8.2,20.4 0.4,13.4 11.1,11.8" fill="%23f97316" stroke="%23c2410c" stroke-width="1.5"/></svg>'),
-              width: 32,
-              height: 32,
-              anchorY: 16,
+              url: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><polygon points="8,1 15,8 8,15 1,8" fill="%23f9a825" fill-opacity="0.5" stroke="%23f57f17" stroke-width="1"/></svg>'),
+              width: 16,
+              height: 16,
+              anchorY: 8,
             }),
-            getSize: 18,
-            sizeMinPixels: 6,
-            sizeMaxPixels: 22,
+            getSize: 12,
+            sizeMinPixels: 4,
+            sizeMaxPixels: 14,
             pickable: true,
           }),
         );
@@ -394,14 +425,45 @@ function DeckGLPointMap({ points, filters, hierarchy, stations, showStations }: 
     });
   }, [filteredData, stationData]);
 
+  // Auto-zoom to filtered area when org filters change
+  const filtersKey = `${globalFilters.division}|${globalFilters.region}|${globalFilters.chapter}|${globalFilters.state}|${globalFilters.county}`;
+  useEffect(() => {
+    if (!mapReady || !mapRefInternal.current) return;
+    const map = mapRefInternal.current as { flyTo: (opts: object) => void; fitBounds: (bounds: [[number, number], [number, number]], opts?: object) => void };
+
+    const hasFilters = !!(globalFilters.division || globalFilters.region || globalFilters.chapter || globalFilters.state || globalFilters.county);
+
+    if (!hasFilters) {
+      map.flyTo({ center: [-98.5, 39.8], zoom: 4, duration: 1000 });
+      return;
+    }
+
+    // Use fire point bounds (filteredData is already correctly filtered by FIPS)
+    if (filteredData.length === 0) return;
+    let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+    for (const p of filteredData) {
+      const [lon, lat] = p.position;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+    }
+    map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 60, duration: 1000, maxZoom: 14 });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersKey, mapReady]);
+
   return (
     <div className="relative">
       <div ref={mapContainerRef} style={{ width: '100%', height: 500 }} className="rounded" />
       <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded px-3 py-2 text-xs border border-arc-gray-100">
         <div className="flex gap-3">
-          {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-            <div key={key} className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[key as keyof typeof CATEGORY_COLORS] }} />
+          {([
+            { label: 'RC Care', color: '#22c55e' },
+            { label: 'RC Notification', color: '#3b82f6' },
+            { label: 'No Notification', color: '#ef4444' },
+          ]).map(({ label, color }) => (
+            <div key={label} className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
               <span>{label}</span>
             </div>
           ))}
@@ -481,7 +543,7 @@ export default function GeographyTab() {
 
   // Filtered FIPS set — only highlight counties/states that match filters
   const filteredFips = useMemo(() => {
-    if (!filters.division && !filters.region && !filters.chapter && !filters.state) return null;
+    if (!filters.division && !filters.region && !filters.chapter && !filters.state && !filters.county) return null;
     const set = new Set<string>();
     for (const c of filteredCounties) {
       set.add(c.fips); // county FIPS
@@ -565,9 +627,9 @@ export default function GeographyTab() {
         {mapMode === 'points' && (
           <div className="flex items-center gap-3">
             {([
-              { key: 'showCare' as const, label: 'Care', color: CATEGORY_COLORS.care },
-              { key: 'showNotification' as const, label: 'Notification', color: CATEGORY_COLORS.notification },
-              { key: 'showGap' as const, label: 'Gap', color: CATEGORY_COLORS.gap },
+              { key: 'showCare' as const, label: 'Care', color: '#22c55e' },
+              { key: 'showNotification' as const, label: 'Notification', color: '#3b82f6' },
+              { key: 'showGap' as const, label: 'Gap', color: '#ef4444' },
             ]).map(({ key, label, color }) => (
               <button
                 key={key}
@@ -579,20 +641,33 @@ export default function GeographyTab() {
                 <span className={pointFilters[key] ? 'text-arc-gray-700' : 'text-arc-gray-300'}>{label}</span>
               </button>
             ))}
+            <span className="w-px h-4 bg-arc-gray-200" />
+            <button
+              onClick={() => setShowStations(s => !s)}
+              className="flex items-center gap-1.5 text-xs"
+            >
+              {showStations ? <Eye size={12} /> : <EyeOff size={12} className="text-arc-gray-300" />}
+              <svg width="10" height="10" viewBox="0 0 16 16"><polygon points="8,1 15,8 8,15 1,8" fill={showStations ? '#f9a825' : '#a3a3a3'} /></svg>
+              <span className={showStations ? 'text-arc-gray-700' : 'text-arc-gray-300'}>
+                Stations {stations ? `(${formatNumber(stations.count)})` : ''}
+              </span>
+            </button>
           </div>
         )}
 
-        {/* Fire stations toggle — available in both modes */}
-        <button
-          onClick={() => setShowStations(s => !s)}
-          className="flex items-center gap-1.5 text-xs ml-auto"
-        >
-          {showStations ? <Eye size={12} /> : <EyeOff size={12} className="text-arc-gray-300" />}
-          <svg width="12" height="12" viewBox="0 0 32 32"><polygon points="16,2 20.9,11.8 31.6,13.4 23.8,20.4 25.8,31 16,25.8 6.2,31 8.2,20.4 0.4,13.4 11.1,11.8" fill={showStations ? '#f97316' : '#a3a3a3'} /></svg>
-          <span className={showStations ? 'text-arc-gray-700' : 'text-arc-gray-300'}>
-            Fire Stations {stations ? `(${formatNumber(stations.count)})` : ''}
-          </span>
-        </button>
+        {/* Fire stations toggle — choropleth mode only (point mode has it inline above) */}
+        {mapMode === 'choropleth' && (
+          <button
+            onClick={() => setShowStations(s => !s)}
+            className="flex items-center gap-1.5 text-xs ml-auto"
+          >
+            {showStations ? <Eye size={12} /> : <EyeOff size={12} className="text-arc-gray-300" />}
+            <svg width="10" height="10" viewBox="0 0 16 16"><polygon points="8,1 15,8 8,15 1,8" fill={showStations ? '#f9a825' : '#a3a3a3'} /></svg>
+            <span className={showStations ? 'text-arc-gray-700' : 'text-arc-gray-300'}>
+              Stations {stations ? `(${formatNumber(stations.count)})` : ''}
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Map + Detail Panel */}

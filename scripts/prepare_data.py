@@ -260,6 +260,7 @@ def main():
     points_month = []
     points_chapter = []  # index into chapter_list for map hover
     points_region = []   # index into region_list for map hover
+    points_fips = []     # county FIPS (5-digit string, "" if unknown)
 
     # Lookup lists for compact point encoding (index → name)
     chapter_list = []
@@ -420,6 +421,7 @@ def main():
         points_month.append(date.month if date else 0)
         points_chapter.append(ch_idx)
         points_region.append(rg_idx)
+        points_fips.append(county_fips)
 
         # Totals
         totals[label] += 1
@@ -495,6 +497,7 @@ def main():
         "month": points_month,
         "ch": points_chapter,
         "rg": points_region,
+        "fips": points_fips,
         "chapters": chapter_list,
         "regions": region_list,
         "count": len(points_lat),

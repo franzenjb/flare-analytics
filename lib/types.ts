@@ -86,6 +86,7 @@ export interface FirePointsData {
   month: number[];
   ch: number[];   // chapter index (-1 = unknown)
   rg: number[];   // region index (-1 = unknown)
+  fips: string[]; // county FIPS (5-digit, "" if unknown)
   chapters: string[];
   regions: string[];
   count: number;
@@ -160,6 +161,7 @@ export interface FilterState {
   region: string | null;
   chapter: string | null;
   state: string | null;
+  county: string | null;
 }
 
 export interface AggregatedRow {

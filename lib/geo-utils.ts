@@ -113,12 +113,13 @@ export function parseCountiesTopo(topo: Topology): GeoFeature[] {
 export function getMetricColor(
   value: number,
   maxValue: number,
-  metric: 'total' | 'careRate' | 'gapRate' | 'avgSvi'
+  metric: string
 ): string {
   if (maxValue === 0) return '#e5e5e5';
   const intensity = value / maxValue;
 
-  if (metric === 'gapRate') {
+  if (metric === 'gapRate' || metric === 'povertyRate') {
+    // Red scale — higher is worse
     if (intensity > 0.8) return '#991b1b';
     if (intensity > 0.6) return '#dc2626';
     if (intensity > 0.4) return '#f87171';
@@ -132,7 +133,23 @@ export function getMetricColor(
     if (intensity > 0.2) return '#86efac';
     return '#dcfce7';
   }
-  // total / avgSvi — neutral gray-blue scale
+  if (metric === 'medianIncome' || metric === 'homeValue') {
+    // Blue scale — neutral
+    if (intensity > 0.8) return '#1e3a5f';
+    if (intensity > 0.6) return '#2563eb';
+    if (intensity > 0.4) return '#60a5fa';
+    if (intensity > 0.2) return '#93c5fd';
+    return '#dbeafe';
+  }
+  if (metric === 'medianAge') {
+    // Amber/neutral scale
+    if (intensity > 0.8) return '#78350f';
+    if (intensity > 0.6) return '#b45309';
+    if (intensity > 0.4) return '#f59e0b';
+    if (intensity > 0.2) return '#fcd34d';
+    return '#fef3c7';
+  }
+  // total / avgSvi / default — neutral gray-blue scale
   if (intensity > 0.8) return '#1e293b';
   if (intensity > 0.6) return '#475569';
   if (intensity > 0.4) return '#64748b';
@@ -143,7 +160,7 @@ export function getMetricColor(
 // Determine if label text should be white or dark based on fill color
 export function getLabelColor(fillColor: string): string {
   // Dark colors need white text
-  const dark = ['#991b1b', '#dc2626', '#14532d', '#166534', '#1e293b', '#475569', '#64748b'];
+  const dark = ['#991b1b', '#dc2626', '#14532d', '#166534', '#1e293b', '#475569', '#64748b', '#1e3a5f', '#2563eb', '#78350f', '#b45309'];
   return dark.includes(fillColor) ? '#ffffff' : '#1a1a1a';
 }
 

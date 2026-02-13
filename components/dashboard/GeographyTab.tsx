@@ -3,21 +3,22 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { useFlare } from '@/lib/context';
-import { loadFirePoints, loadStatesTopo, loadCountiesTopo } from '@/lib/data-loader';
+import { loadFirePoints, loadFireStations, loadStatesTopo, loadCountiesTopo } from '@/lib/data-loader';
 import { parseStatesTopo, parseCountiesTopo, getMetricColor, getLabelColor, LABEL_STATES, STATE_TO_FIPS, type GeoFeature } from '@/lib/geo-utils';
-import { formatNumber, formatCompact, formatPercent, formatSvi } from '@/lib/format';
+import { formatNumber, formatCompact, formatPercent, formatSvi, formatCurrency } from '@/lib/format';
 import { bucketBySvi, computeEquityGap } from '@/lib/svi';
-import type { FirePointsData, CountyData } from '@/lib/types';
+import type { FirePointsData, FireStationsData, CountyData } from '@/lib/types';
 import { CATEGORY_COLORS, CATEGORY_LABELS } from '@/lib/types';
 import SectionHeader from '@/components/ui/SectionHeader';
 import KpiCard from '@/components/ui/KpiCard';
 import SviQuintileChart from '@/components/ui/SviQuintileChart';
 import DataTable, { type ColumnDef } from '@/components/ui/DataTable';
+import ReportButton from '@/components/report/ReportButton';
 import { Flame, ShieldCheck, AlertTriangle, Activity } from 'lucide-react';
 
 type MapMode = 'choropleth' | 'points';
 type GeoLevel = 'state' | 'county';
-type ChoroplethMetric = 'total' | 'careRate' | 'gapRate' | 'avgSvi' | 'firesPer10k';
+type ChoroplethMetric = 'total' | 'careRate' | 'gapRate' | 'avgSvi' | 'firesPer10k' | 'medianIncome' | 'homeValue' | 'medianAge';
 
 const METRIC_OPTIONS: { key: ChoroplethMetric; label: string }[] = [
   { key: 'total', label: 'Total Fires' },
@@ -25,6 +26,9 @@ const METRIC_OPTIONS: { key: ChoroplethMetric; label: string }[] = [
   { key: 'gapRate', label: 'Gap Rate' },
   { key: 'avgSvi', label: 'Avg SVI' },
   { key: 'firesPer10k', label: 'Fires Per 10K' },
+  { key: 'medianIncome', label: 'Median Income' },
+  { key: 'homeValue', label: 'Home Value' },
+  { key: 'medianAge', label: 'Median Age' },
 ];
 
 const CATEGORY_RGB: Record<number, [number, number, number]> = {
@@ -61,8 +65,30 @@ function DetailPanel({ entity, counties, onClose }: {
   const care = entityCounties.reduce((s, c) => s + c.care, 0);
   const gap = entityCounties.reduce((s, c) => s + c.gap, 0);
   const population = entityCounties.reduce((s, c) => s + (c.population || 0), 0);
+  const households = entityCounties.reduce((s, c) => s + (c.households || 0), 0);
+  const poverty = entityCounties.reduce((s, c) => s + (c.poverty || 0), 0);
   const careRate = total > 0 ? (care / total) * 100 : 0;
   const gapRate = total > 0 ? (gap / total) * 100 : 0;
+  const povertyRate = population > 0 ? (poverty / population) * 100 : 0;
+
+  // Weighted averages for demographics
+  const incomeWeighted = entityCounties.reduce((s, c) => c.medianIncome > 0 ? s + c.medianIncome * c.total : s, 0);
+  const incomeTotal = entityCounties.reduce((s, c) => c.medianIncome > 0 ? s + c.total : s, 0);
+  const medianIncome = incomeTotal > 0 ? Math.round(incomeWeighted / incomeTotal) : 0;
+
+  const homeWeighted = entityCounties.reduce((s, c) => c.homeValue > 0 ? s + c.homeValue * c.total : s, 0);
+  const homeTotal = entityCounties.reduce((s, c) => c.homeValue > 0 ? s + c.total : s, 0);
+  const homeValue = homeTotal > 0 ? Math.round(homeWeighted / homeTotal) : 0;
+
+  const ageWeighted = entityCounties.reduce((s, c) => c.medianAge > 0 ? s + c.medianAge * c.total : s, 0);
+  const ageTotal = entityCounties.reduce((s, c) => c.medianAge > 0 ? s + c.total : s, 0);
+  const medianAge = ageTotal > 0 ? +(ageWeighted / ageTotal).toFixed(1) : 0;
+
+  const divWeighted = entityCounties.reduce((s, c) => c.diversityIndex > 0 ? s + c.diversityIndex * c.total : s, 0);
+  const divTotal = entityCounties.reduce((s, c) => c.diversityIndex > 0 ? s + c.total : s, 0);
+  const diversityIndex = divTotal > 0 ? +(divWeighted / divTotal).toFixed(1) : 0;
+  const stationCountTotal = entityCounties.reduce((s, c) => s + (c.stationCount || 0), 0);
+  const firesPerStation = stationCountTotal > 0 ? +(total / stationCountTotal).toFixed(1) : 0;
 
   const quintiles = useMemo(() => bucketBySvi(entityCounties), [entityCounties]);
   const equity = useMemo(() => computeEquityGap(quintiles), [quintiles]);
@@ -71,13 +97,28 @@ function DetailPanel({ entity, counties, onClose }: {
     <div className="bg-white rounded border border-arc-gray-100 p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black">{entity.name}</h3>
-        <button onClick={onClose} className="text-xs text-arc-gray-500 hover:text-arc-red">Close</button>
+        <div className="flex items-center gap-3">
+          {entity.fips.length === 5 && <ReportButton countyFips={entity.fips} size="xs" />}
+          <button onClick={onClose} className="text-xs text-arc-gray-500 hover:text-arc-red">Close</button>
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <KpiCard label="Fires" value={formatNumber(total)} icon={Flame} sparklineData={[]} />
         <KpiCard label="Care Rate" value={formatPercent(careRate)} icon={ShieldCheck} />
         <KpiCard label="Gap Rate" value={formatPercent(gapRate)} icon={AlertTriangle} highlight />
         <KpiCard label="Population" value={formatCompact(population)} icon={Activity} />
+      </div>
+      {/* Community Profile */}
+      <div>
+        <h4 className="text-xs font-semibold text-arc-gray-500 mb-2">Community Profile</h4>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+          <div className="flex justify-between"><span className="text-arc-gray-500">Income</span><span className="font-[family-name:var(--font-data)] font-medium">{formatCurrency(medianIncome)}</span></div>
+          <div className="flex justify-between"><span className="text-arc-gray-500">Home Value</span><span className="font-[family-name:var(--font-data)] font-medium">{formatCurrency(homeValue)}</span></div>
+          <div className="flex justify-between"><span className="text-arc-gray-500">Median Age</span><span className="font-[family-name:var(--font-data)] font-medium">{medianAge}</span></div>
+          <div className="flex justify-between"><span className="text-arc-gray-500">Households</span><span className="font-[family-name:var(--font-data)] font-medium">{formatCompact(households)}</span></div>
+          <div className="flex justify-between"><span className="text-arc-gray-500">Fire Stations</span><span className="font-[family-name:var(--font-data)] font-medium">{formatNumber(stationCountTotal)}</span></div>
+          <div className="flex justify-between"><span className="text-arc-gray-500">Fires/Station</span><span className="font-[family-name:var(--font-data)] font-medium">{firesPerStation}</span></div>
+        </div>
       </div>
       {quintiles.some(q => q.total > 0) && (
         <div>
@@ -108,7 +149,7 @@ function ChoroplethMap({ features, dataMap, metric, geoLevel, selectedFips, onSe
     return max;
   }, [dataMap, metric]);
 
-  const metricType = metric === 'gapRate' ? 'gapRate' : metric === 'careRate' ? 'careRate' : metric === 'avgSvi' ? 'avgSvi' : 'total';
+  const metricType = metric;
 
   return (
     <svg viewBox="0 0 975 610" className="w-full" style={{ maxHeight: 500 }}>
@@ -153,11 +194,20 @@ function ChoroplethMap({ features, dataMap, metric, geoLevel, selectedFips, onSe
   );
 }
 
+interface StationDatum {
+  position: [number, number];
+  name: string;
+  addr: string;
+  city: string;
+}
+
 // DeckGL Point Map (carried forward from v1)
-function DeckGLPointMap({ points, filters, hierarchy }: {
+function DeckGLPointMap({ points, filters, hierarchy, stations, showStations }: {
   points: FirePointsData;
   filters: { showCare: boolean; showNotification: boolean; showGap: boolean };
   hierarchy: ReturnType<typeof import('@/lib/org-hierarchy').buildOrgHierarchy>;
+  stations: FireStationsData | null;
+  showStations: boolean;
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const deckRefInternal = useRef<unknown>(null);
@@ -220,6 +270,21 @@ function DeckGLPointMap({ points, filters, hierarchy }: {
     return result;
   }, [points, filters, globalFilters, hierarchy]);
 
+  // Build station data for the layer
+  const stationData = useMemo(() => {
+    if (!stations || !showStations) return [];
+    const result: StationDatum[] = [];
+    for (let i = 0; i < stations.count; i++) {
+      result.push({
+        position: [stations.lon[i], stations.lat[i]],
+        name: stations.name[i],
+        addr: stations.addr[i],
+        city: stations.city[i],
+      });
+    }
+    return result;
+  }, [stations, showStations]);
+
   useEffect(() => {
     if (!mapContainerRef.current) return;
     let cleanup = false;
@@ -255,12 +320,23 @@ function DeckGLPointMap({ points, filters, hierarchy }: {
               pickable: true,
             }),
           ],
-          getTooltip: ({ object }: { object?: PointDatum }) => {
+          getTooltip: ({ object }: { object?: PointDatum | StationDatum }) => {
             if (!object) return null;
-            const lines = [`<strong>${catLabels[object.cat]}</strong>`, `SVI: ${object.svi.toFixed(3)}`];
-            if (object.chapter) lines.push(`Chapter: ${object.chapter}`);
-            if (object.region) lines.push(`Region: ${object.region}`);
-            return { html: lines.join('<br/>'), style: { fontFamily: 'var(--font-body)', fontSize: '12px', padding: '8px 12px', background: 'white', border: '1px solid #e5e5e5', borderRadius: '4px', color: '#1a1a1a' } };
+            const style = { fontFamily: 'var(--font-body)', fontSize: '12px', padding: '8px 12px', background: 'white', border: '1px solid #e5e5e5', borderRadius: '4px', color: '#1a1a1a' };
+            // Station tooltip
+            if ('name' in object && !('cat' in object)) {
+              const s = object as StationDatum;
+              const lines = [`<strong>${s.name}</strong>`];
+              if (s.addr) lines.push(s.addr);
+              if (s.city) lines.push(s.city);
+              return { html: lines.join('<br/>'), style };
+            }
+            // Fire point tooltip
+            const p = object as PointDatum;
+            const lines = [`<strong>${catLabels[p.cat]}</strong>`, `SVI: ${p.svi.toFixed(3)}`];
+            if (p.chapter) lines.push(`Chapter: ${p.chapter}`);
+            if (p.region) lines.push(`Region: ${p.region}`);
+            return { html: lines.join('<br/>'), style };
           },
         });
         map.addControl(overlay);
@@ -278,27 +354,40 @@ function DeckGLPointMap({ points, filters, hierarchy }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Update layers when filtered data changes
+  // Update layers when filtered data or stations change
   useEffect(() => {
     if (!deckRefInternal.current) return;
     import('@deck.gl/layers').then(layers => {
       const overlay = deckRefInternal.current as { setProps: (p: { layers: unknown[] }) => void };
-      overlay.setProps({
-        layers: [
+      const layerList: unknown[] = [
+        new layers.ScatterplotLayer({
+          id: 'scatter',
+          data: filteredData,
+          getPosition: (d: PointDatum) => d.position,
+          getFillColor: (d: PointDatum) => [...CATEGORY_RGB[d.cat], 160],
+          getRadius: 800,
+          radiusMinPixels: 1.5,
+          radiusMaxPixels: 8,
+          pickable: true,
+        }),
+      ];
+      if (stationData.length > 0) {
+        layerList.push(
           new layers.ScatterplotLayer({
-            id: 'scatter',
-            data: filteredData,
-            getPosition: (d: PointDatum) => d.position,
-            getFillColor: (d: PointDatum) => [...CATEGORY_RGB[d.cat], 160],
-            getRadius: 800,
-            radiusMinPixels: 1.5,
-            radiusMaxPixels: 8,
+            id: 'stations',
+            data: stationData,
+            getPosition: (d: StationDatum) => d.position,
+            getFillColor: [249, 115, 22, 200], // orange-500
+            getRadius: 600,
+            radiusMinPixels: 2,
+            radiusMaxPixels: 6,
             pickable: true,
           }),
-        ],
-      });
+        );
+      }
+      overlay.setProps({ layers: layerList });
     });
-  }, [filteredData]);
+  }, [filteredData, stationData]);
 
   return (
     <div className="relative">
@@ -329,6 +418,8 @@ export default function GeographyTab() {
   const [stateFeatures, setStateFeatures] = useState<GeoFeature[] | null>(null);
   const [countyFeatures, setCountyFeatures] = useState<GeoFeature[] | null>(null);
   const [points, setPoints] = useState<FirePointsData | null>(null);
+  const [stations, setStations] = useState<FireStationsData | null>(null);
+  const [showStations, setShowStations] = useState(false);
   const [pointFilters, setPointFilters] = useState({ showCare: true, showNotification: true, showGap: true });
 
   // Load geo data
@@ -344,6 +435,13 @@ export default function GeographyTab() {
     }
   }, [mapMode, points]);
 
+  // Lazy load stations when toggle is on
+  useEffect(() => {
+    if (showStations && !stations) {
+      loadFireStations().then(setStations);
+    }
+  }, [showStations, stations]);
+
   // Build data maps for choropleth
   const stateDataMap = useMemo(() => {
     const map = new Map<string, Record<string, number>>();
@@ -354,6 +452,8 @@ export default function GeographyTab() {
         map.set(fips, {
           total: row.total, careRate: row.careRate, gapRate: row.gapRate,
           avgSvi: row.avgSvi, firesPer10k: row.firesPer10k,
+          medianIncome: row.medianIncome, povertyRate: row.povertyRate,
+          homeValue: row.homeValue, medianAge: row.medianAge,
         });
       }
     }
@@ -363,9 +463,12 @@ export default function GeographyTab() {
   const countyDataMap = useMemo(() => {
     const map = new Map<string, Record<string, number>>();
     for (const c of filteredCounties) {
+      const povertyRate = c.population > 0 ? +((( c.poverty || 0) / c.population) * 100).toFixed(1) : 0;
       map.set(c.fips, {
         total: c.total, careRate: c.careRate, gapRate: c.gapRate,
         avgSvi: c.avgSvi, firesPer10k: c.firesPer10k,
+        medianIncome: c.medianIncome, povertyRate,
+        homeValue: c.homeValue, medianAge: c.medianAge,
       });
     }
     return map;
@@ -473,6 +576,18 @@ export default function GeographyTab() {
             ))}
           </div>
         )}
+
+        {/* Fire stations toggle — available in both modes */}
+        <button
+          onClick={() => setShowStations(s => !s)}
+          className="flex items-center gap-1.5 text-xs ml-auto"
+        >
+          {showStations ? <Eye size={12} /> : <EyeOff size={12} className="text-arc-gray-300" />}
+          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: showStations ? '#f97316' : '#a3a3a3' }} />
+          <span className={showStations ? 'text-arc-gray-700' : 'text-arc-gray-300'}>
+            Fire Stations {stations ? `(${formatNumber(stations.count)})` : ''}
+          </span>
+        </button>
       </div>
 
       {/* Map + Detail Panel */}
@@ -505,7 +620,7 @@ export default function GeographyTab() {
               )}
             </div>
           ) : points ? (
-            <DeckGLPointMap points={points} filters={pointFilters} hierarchy={hierarchy} />
+            <DeckGLPointMap points={points} filters={pointFilters} hierarchy={hierarchy} stations={stations} showStations={showStations} />
           ) : (
             <div className="h-[500px] animate-pulse bg-arc-gray-100 rounded flex items-center justify-center text-xs text-arc-gray-500">
               Loading 103K fire points...

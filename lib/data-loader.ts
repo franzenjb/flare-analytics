@@ -1,7 +1,7 @@
 // Data loaders for FLARE Analytics v2
 // Primary source: by-county.json (2,997 records) — all aggregation done client-side
 
-import type { DailyData, FirePointsData, CountyData } from './types';
+import type { DailyData, FirePointsData, FireStationsData, CountyData } from './types';
 import type { Topology } from 'topojson-specification';
 
 const cache = new Map<string, unknown>();
@@ -20,6 +20,7 @@ export const loadCounties = () => fetchJson<CountyData[]>('/data/by-county.json'
 
 // Lazy-loaded for map + trends
 export const loadFirePoints = () => fetchJson<FirePointsData>('/data/fires-points.json');
+export const loadFireStations = () => fetchJson<FireStationsData>('/data/fire-stations.json');
 export const loadDaily = () => fetchJson<DailyData[]>('/data/by-day.json');
 
 // TopoJSON for choropleth

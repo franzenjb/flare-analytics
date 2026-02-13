@@ -8,13 +8,14 @@ import { Flame, ShieldCheck, AlertTriangle, Activity, Users, TrendingUp } from '
 import { useFlare } from '@/lib/context';
 import { applyMetricMode, metricModeLabel } from '@/lib/aggregator';
 import { bucketBySvi, computeEquityGap } from '@/lib/svi';
-import { formatNumber, formatCompact, formatPercent, formatSvi, formatMonth, formatRate } from '@/lib/format';
+import { formatNumber, formatCompact, formatPercent, formatSvi, formatMonth, formatRate, formatCurrency, formatRatio } from '@/lib/format';
 import { CATEGORY_COLORS } from '@/lib/types';
 import SectionHeader from '@/components/ui/SectionHeader';
 import KpiCard from '@/components/ui/KpiCard';
 import SviQuintileChart from '@/components/ui/SviQuintileChart';
 import DataTable, { type ColumnDef } from '@/components/ui/DataTable';
 import type { AggregatedRow } from '@/lib/types';
+import ReportButton from '@/components/report/ReportButton';
 
 function CriticalAlerts({ entities, national }: { entities: AggregatedRow[]; national: AggregatedRow }) {
   const alerts = useMemo(() => {
@@ -163,14 +164,21 @@ export default function DashboardTab() {
     if (filters.chapter) {
       // Show counties under this chapter
       return {
-        drillEntities: filteredCounties.map(c => ({
-          name: c.county, level: 'county' as const,
-          total: c.total, care: c.care, notification: c.notification, gap: c.gap,
-          careRate: c.careRate, gapRate: c.gapRate, avgSvi: c.avgSvi,
-          population: c.population, households: c.households, poverty: c.poverty || 0,
-          medianIncome: c.medianIncome, medianAge: c.medianAge, diversityIndex: c.diversityIndex,
-          homeValue: c.homeValue, firesPer10k: c.firesPer10k, countyCount: 1, monthly: c.monthly,
-        } as AggregatedRow)),
+        drillEntities: filteredCounties.map(c => {
+          const poverty = c.poverty || 0;
+          return {
+            name: c.county, level: 'county' as const,
+            total: c.total, care: c.care, notification: c.notification, gap: c.gap,
+            careRate: c.careRate, gapRate: c.gapRate, avgSvi: c.avgSvi,
+            population: c.population, households: c.households, poverty,
+            medianIncome: c.medianIncome, medianAge: c.medianAge, diversityIndex: c.diversityIndex,
+            homeValue: c.homeValue, firesPer10k: c.firesPer10k,
+            povertyRate: c.population > 0 ? +((poverty / c.population) * 100).toFixed(1) : 0,
+            affordabilityRatio: c.medianIncome > 0 ? +((c.homeValue || 0) / c.medianIncome).toFixed(1) : 0,
+            stationCount: c.stationCount || 0,
+            countyCount: 1, monthly: c.monthly,
+          } as AggregatedRow;
+        }),
         drillLabel: 'Top Counties',
       };
     }
@@ -200,6 +208,7 @@ export default function DashboardTab() {
     { key: 'gapRate', label: 'Gap Rate', align: 'right', sortable: true, format: v => formatPercent(Number(v)),
       heatmap: { min: 20, max: 70, lowColor: '#22c55e', highColor: '#fca5a5' } },
     { key: 'avgSvi', label: 'Avg SVI', align: 'right', sortable: true, format: v => formatSvi(Number(v)) },
+    { key: 'medianIncome', label: 'Income', align: 'right', sortable: true, format: v => formatCurrency(Number(v)) },
   ];
 
   // Apply metric mode to the entities for the mini table
@@ -217,10 +226,13 @@ export default function DashboardTab() {
 
   return (
     <div className="space-y-6">
-      <SectionHeader
-        title="Dashboard"
-        subtitle={`${formatNumber(fn.total)} fires across ${fn.countyCount.toLocaleString()} counties — Calendar Year 2024`}
-      />
+      <div className="flex items-start justify-between">
+        <SectionHeader
+          title="Dashboard"
+          subtitle={`${formatNumber(fn.total)} fires across ${fn.countyCount.toLocaleString()} counties — Calendar Year 2024`}
+        />
+        {filters.chapter && <ReportButton chapterName={filters.chapter} />}
+      </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -263,6 +275,36 @@ export default function DashboardTab() {
           icon={TrendingUp}
           sparklineData={fn.monthly.map(m => m.total)}
         />
+      </div>
+
+      {/* Community Profile */}
+      <div className="bg-white rounded p-5 border border-arc-gray-100">
+        <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black mb-4">
+          Community Profile
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+          {([
+            { label: 'Median Income', value: formatCurrency(fn.medianIncome), delta: fn.medianIncome - national.medianIncome, fmt: (d: number) => `${d >= 0 ? '+' : '-'}$${formatNumber(Math.abs(Math.round(d)))}`, higherBetter: true as boolean | undefined },
+            { label: 'Home Value', value: formatCurrency(fn.homeValue), delta: fn.homeValue - national.homeValue, fmt: (d: number) => `${d >= 0 ? '+' : '-'}$${formatNumber(Math.abs(Math.round(d)))}`, higherBetter: undefined as boolean | undefined },
+            { label: 'Median Age', value: fn.medianAge.toFixed(1), delta: fn.medianAge - national.medianAge, fmt: (d: number) => `${d >= 0 ? '+' : ''}${d.toFixed(1)}`, higherBetter: undefined as boolean | undefined },
+            { label: 'Households', value: formatCompact(fn.households), delta: 0 as number, fmt: (_d: number) => '', higherBetter: undefined as boolean | undefined },
+            { label: 'Fires Per 10K', value: fn.firesPer10k.toFixed(1), delta: fn.firesPer10k - national.firesPer10k, fmt: (d: number) => `${d >= 0 ? '+' : ''}${d.toFixed(1)}`, higherBetter: undefined as boolean | undefined },
+            { label: 'Fire Stations', value: formatNumber(fn.stationCount), delta: 0 as number, fmt: (_d: number) => '', higherBetter: undefined as boolean | undefined },
+          ]).map(stat => (
+            <div key={stat.label} className="text-center">
+              <p className="text-[10px] text-arc-gray-500 uppercase tracking-wide">{stat.label}</p>
+              <p className="text-lg font-[family-name:var(--font-data)] font-bold text-arc-black mt-0.5">{stat.value}</p>
+              {hasFilters && stat.delta !== 0 && (
+                <p className={`text-[10px] font-[family-name:var(--font-data)] mt-0.5 ${
+                  stat.higherBetter === undefined ? 'text-arc-gray-500'
+                  : (stat.higherBetter ? stat.delta >= 0 : stat.delta <= 0) ? 'text-green-600' : 'text-arc-red'
+                }`}>
+                  {stat.fmt(stat.delta)} vs natl
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Critical Alerts */}

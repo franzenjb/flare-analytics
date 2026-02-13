@@ -58,3 +58,9 @@ export function formatDelta(n: number): string {
   const sign = n >= 0 ? '+' : '';
   return `${sign}${n.toFixed(1)}`;
 }
+
+/** Format ratio: 3.7 → "3.7x" */
+export function formatRatio(n: number): string {
+  if (n === 0) return '—';
+  return `${n.toFixed(1)}x`;
+}

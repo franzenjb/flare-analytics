@@ -45,7 +45,7 @@ const EMPTY_NATIONAL: AggregatedRow = {
   name: 'National', level: 'national', total: 0, care: 0, notification: 0, gap: 0,
   careRate: 0, gapRate: 0, avgSvi: 0, population: 0, households: 0, poverty: 0,
   medianIncome: 0, medianAge: 0, diversityIndex: 0, homeValue: 0, firesPer10k: 0,
-  countyCount: 0, monthly: [],
+  povertyRate: 0, affordabilityRatio: 0, stationCount: 0, countyCount: 0, monthly: [],
 };
 
 const EMPTY_HIERARCHY: OrgHierarchy = {

@@ -47,7 +47,7 @@ export function computeNational(counties: CountyData[]): AggregatedRow {
 /** Build a single AggregatedRow from a group of counties */
 function buildAggregatedRow(name: string, level: OrgLevel, counties: CountyData[]): AggregatedRow {
   let total = 0, care = 0, notification = 0, gap = 0;
-  let population = 0, households = 0, poverty = 0;
+  let population = 0, households = 0, poverty = 0, stationCount = 0;
   let incomeSum = 0, incomeCount = 0;
   let ageSum = 0, ageCount = 0;
   let diversitySum = 0, diversityCount = 0;
@@ -65,6 +65,7 @@ function buildAggregatedRow(name: string, level: OrgLevel, counties: CountyData[
     population += c.population || 0;
     households += c.households || 0;
     poverty += c.poverty || 0;
+    stationCount += c.stationCount || 0;
 
     // Weight demographics by fire count (not population) for meaningful averages
     if (c.medianIncome > 0) { incomeSum += c.medianIncome * c.total; incomeCount += c.total; }
@@ -114,6 +115,11 @@ function buildAggregatedRow(name: string, level: OrgLevel, counties: CountyData[
     diversityIndex: diversityCount > 0 ? +(diversitySum / diversityCount).toFixed(1) : 0,
     homeValue: homeCount > 0 ? Math.round(homeSum / homeCount) : 0,
     firesPer10k: population > 0 ? +((total / population) * 10000).toFixed(1) : 0,
+    povertyRate: population > 0 ? +((poverty / population) * 100).toFixed(1) : 0,
+    affordabilityRatio: incomeCount > 0 && (incomeSum / incomeCount) > 0
+      ? +((homeCount > 0 ? homeSum / homeCount : 0) / (incomeSum / incomeCount)).toFixed(1)
+      : 0,
+    stationCount,
     countyCount: counties.length,
     monthly,
   };

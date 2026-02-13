@@ -114,7 +114,20 @@ export interface CountyData {
   diversityIndex: number;
   homeValue: number;
   firesPer10k: number;
+  stationCount: number;
   monthly: MonthlyData[];
+}
+
+export interface FireStationsData {
+  name: string[];
+  lat: number[];
+  lon: number[];
+  fips: string[];
+  fdid: string[];
+  addr: string[];
+  city: string[];
+  state: string[];
+  count: number;
 }
 
 export interface OrgUnitData {
@@ -167,6 +180,9 @@ export interface AggregatedRow {
   diversityIndex: number;
   homeValue: number;
   firesPer10k: number;
+  povertyRate: number;
+  affordabilityRatio: number;
+  stationCount: number;
   countyCount: number;
   monthly: MonthlyData[];
   // Peer benchmarks (injected by injectBenchmarks)

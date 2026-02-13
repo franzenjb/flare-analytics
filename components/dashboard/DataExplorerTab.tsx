@@ -7,10 +7,11 @@ import {
 } from 'recharts';
 import { useFlare } from '@/lib/context';
 import { applyMetricMode, metricModeLabel } from '@/lib/aggregator';
-import { formatNumber, formatPercent, formatSvi, formatCurrency, formatMonth } from '@/lib/format';
+import { formatNumber, formatPercent, formatSvi, formatCurrency, formatMonth, formatRatio } from '@/lib/format';
 import SectionHeader from '@/components/ui/SectionHeader';
 import DataTable, { type ColumnDef } from '@/components/ui/DataTable';
 import PeerBenchmark from '@/components/ui/PeerBenchmark';
+import ReportButton from '@/components/report/ReportButton';
 import type { AggregatedRow, CountyData } from '@/lib/types';
 import { CATEGORY_COLORS } from '@/lib/types';
 
@@ -25,15 +26,24 @@ const SCATTER_METRICS = [
   { key: 'medianIncome', label: 'Median Income' },
   { key: 'population', label: 'Population' },
   { key: 'poverty', label: 'Poverty Count' },
+  { key: 'medianAge', label: 'Median Age' },
+  { key: 'homeValue', label: 'Home Value' },
+  { key: 'affordabilityRatio', label: 'Affordability Ratio' },
+  { key: 'households', label: 'Households' },
 ];
 
 function countyToRow(c: CountyData): AggregatedRow {
+  const poverty = c.poverty || 0;
   return {
     name: c.county, level: 'county', total: c.total, care: c.care, notification: c.notification,
     gap: c.gap, careRate: c.careRate, gapRate: c.gapRate, avgSvi: c.avgSvi,
-    population: c.population, households: c.households, poverty: c.poverty || 0,
+    population: c.population, households: c.households, poverty,
     medianIncome: c.medianIncome, medianAge: c.medianAge, diversityIndex: c.diversityIndex,
-    homeValue: c.homeValue, firesPer10k: c.firesPer10k, countyCount: 1, monthly: c.monthly,
+    homeValue: c.homeValue, firesPer10k: c.firesPer10k,
+    povertyRate: c.population > 0 ? +((poverty / c.population) * 100).toFixed(1) : 0,
+    affordabilityRatio: c.medianIncome > 0 ? +((c.homeValue || 0) / c.medianIncome).toFixed(1) : 0,
+    stationCount: c.stationCount || 0,
+    countyCount: 1, monthly: c.monthly,
   };
 }
 
@@ -133,12 +143,19 @@ export default function DataExplorerTab() {
       { key: 'firesPer10k', label: 'Per 10K', align: 'right', sortable: true, format: v => Number(v).toFixed(1) },
     ];
 
-    if (view === 'counties') {
-      base.push(
-        { key: 'medianIncome', label: 'Income', align: 'right', sortable: true, format: v => formatCurrency(Number(v)) },
-        { key: 'homeValue', label: 'Home Value', align: 'right', sortable: true, format: v => formatCurrency(Number(v)) },
-      );
-    } else {
+    // Demographic columns for all views
+    base.push(
+      { key: 'medianIncome', label: 'Income', align: 'right', sortable: true, format: v => formatCurrency(Number(v)) },
+      { key: 'homeValue', label: 'Home Value', align: 'right', sortable: true, format: v => formatCurrency(Number(v)) },
+      { key: 'medianAge', label: 'Age', align: 'right', sortable: true, format: v => Number(v).toFixed(1) },
+    );
+
+    // Fire stations column for all views
+    base.push(
+      { key: 'stationCount', label: 'Stations', align: 'right', sortable: true, format: v => formatNumber(Number(v)) },
+    );
+
+    if (view !== 'counties') {
       base.push(
         { key: 'countyCount', label: 'Counties', align: 'right', sortable: true, format: v => formatNumber(Number(v)) },
       );
@@ -221,9 +238,14 @@ export default function DataExplorerTab() {
       {/* Comparison Panel */}
       {selectedNames.size > 0 && (
         <div className="bg-white rounded p-5 border border-arc-gray-100">
-          <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black mb-1">
-            Comparison ({selectedNames.size} selected)
-          </h3>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black">
+              Comparison ({selectedNames.size} selected)
+            </h3>
+            {view === 'chapters' && selectedNames.size === 1 && (
+              <ReportButton chapterName={Array.from(selectedNames)[0]} />
+            )}
+          </div>
           <p className="text-[10px] text-arc-gray-500 mb-4">Click rows to select/deselect (max 3)</p>
           <ComparisonPanel selected={selectedEntities} national={national} />
         </div>

@@ -58,10 +58,20 @@ body {
 /* Print styles for leadership screenshots */
 @media print {
   header, footer, nav { display: none !important; }
-  body { background: white !important; }
+  body { background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   main { max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
   .bg-white { box-shadow: none !important; }
-  button, input, select { display: none !important; }
   .grid { break-inside: avoid; }
   .bg-white.rounded { break-inside: avoid; page-break-inside: avoid; margin-bottom: 16px; }
+  /* Report-specific print: hide UI chrome, keep report buttons have print:hidden */
+  .print\:hidden { display: none !important; }
+  .print\:static { position: static !important; }
+  .print\:overflow-visible { overflow: visible !important; }
+  .print\:p-0 { padding: 0 !important; }
+  .print\:space-y-6 > :not([hidden]) ~ :not([hidden]) { margin-top: 1.5rem; }
+  .print\:break-before-page { break-before: page; }
+  /* Ensure charts render in color */
+  svg { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  section { break-inside: avoid; }
+  table { break-inside: avoid; }
 }

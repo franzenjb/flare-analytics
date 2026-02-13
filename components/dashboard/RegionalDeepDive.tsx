@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
+  ResponsiveContainer, LineChart, Line,
 } from 'recharts';
 import { ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react';
 import { loadStates } from '@/lib/data-loader';
@@ -134,6 +134,17 @@ export default function RegionalDeepDive() {
   const stateA = useMemo(() => states?.find(s => s.state === compare[0]), [states, compare]);
   const stateB = useMemo(() => states?.find(s => s.state === compare[1]), [states, compare]);
 
+  // Auto-generated insight
+  const insight = useMemo(() => {
+    if (!states || states.length < 3) return '';
+    const sorted = [...states].sort((a, b) => b.total - a.total);
+    const totalAll = sorted.reduce((s, d) => s + d.total, 0);
+    const top3 = sorted.slice(0, 3);
+    const top3Pct = ((top3.reduce((s, d) => s + d.total, 0) / totalAll) * 100).toFixed(0);
+    const worstGap = [...states].sort((a, b) => b.gapRate - a.gapRate)[0];
+    return `Top 3 states (${top3.map(s => s.state).join(', ')}) account for ${top3Pct}% of all fires. ${worstGap.state} has the highest gap rate at ${formatPercent(worstGap.gapRate)}.`;
+  }, [states]);
+
   if (!states) {
     return (
       <div className="animate-pulse space-y-6">
@@ -153,6 +164,7 @@ export default function RegionalDeepDive() {
         <p className="text-sm text-arc-gray-500 mt-1">
           Geographic analysis across {states.length} states and territories
         </p>
+        {insight && <p className="text-xs text-arc-gray-700 mt-2 bg-arc-cream rounded px-3 py-2">{insight}</p>}
       </div>
 
       {/* Choropleth */}
@@ -203,7 +215,7 @@ export default function RegionalDeepDive() {
                   return next;
                 });
               }}
-              className="px-3 py-2 text-sm border border-arc-gray-100 rounded bg-arc-cream focus:outline-none focus:border-arc-gray-300"
+              className="px-3 py-2 text-sm border border-arc-gray-100 rounded bg-arc-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-arc-red focus-visible:ring-offset-1"
             >
               <option value="">Select state...</option>
               {states.map(s => (
@@ -276,7 +288,7 @@ export default function RegionalDeepDive() {
                 {i + 1}
               </span>
               <span className="font-semibold text-sm w-8">{state.state}</span>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <div className="flex justify-between text-xs">
                   <span className="text-arc-gray-500">{formatNumber(state.total)} fires</span>
                   <span className={`font-[family-name:var(--font-data)] font-medium ${
@@ -287,15 +299,34 @@ export default function RegionalDeepDive() {
                      formatNumber(state.total)}
                   </span>
                 </div>
-                {/* Mini bar */}
-                <div className="h-1.5 bg-arc-gray-100 rounded-full mt-1 overflow-hidden">
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${sortBy === 'careRate' ? state.careRate : sortBy === 'gapRate' ? state.gapRate : (state.total / leaderboard[0].total) * 100}%`,
-                      backgroundColor: sortBy === 'gapRate' ? '#ED1B2E' : sortBy === 'careRate' ? '#2d5a27' : '#4a4a4a',
-                    }}
-                  />
+                <div className="flex items-center gap-2 mt-1">
+                  {/* Mini bar */}
+                  <div className="flex-1 h-1.5 bg-arc-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${sortBy === 'careRate' ? state.careRate : sortBy === 'gapRate' ? state.gapRate : (state.total / leaderboard[0].total) * 100}%`,
+                        backgroundColor: sortBy === 'gapRate' ? '#ED1B2E' : sortBy === 'careRate' ? '#2d5a27' : '#4a4a4a',
+                      }}
+                    />
+                  </div>
+                  {/* Sparkline */}
+                  {state.monthly && state.monthly.length > 0 && (
+                    <div className="w-16 h-4 shrink-0">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={state.monthly}>
+                          <Line
+                            type="monotone"
+                            dataKey={sortBy === 'gapRate' ? 'gap' : 'total'}
+                            stroke={sortBy === 'gapRate' ? '#ED1B2E' : sortBy === 'careRate' ? '#2d5a27' : '#4a4a4a'}
+                            strokeWidth={1}
+                            dot={false}
+                            isAnimationActive={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

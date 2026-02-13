@@ -126,7 +126,7 @@ function OpportunityTable({ data }: { data: GapAnalysisData[] }) {
       </h3>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
-          <thead>
+          <thead className="sticky top-0 bg-white z-10">
             <tr className="border-b-2 border-arc-black">
               <th className="text-left py-2 px-2 font-medium text-arc-gray-500">#</th>
               <th className="text-left py-2 px-2 font-medium text-arc-gray-500">State</th>
@@ -153,13 +153,17 @@ function OpportunityTable({ data }: { data: GapAnalysisData[] }) {
           <tbody>
             {sorted.map((row, i) => {
               const urgency = row.opportunityScore >= 1000 ? 'critical' : row.opportunityScore >= 500 ? 'high' : 'normal';
+              const gapHeat = row.gapRate >= 45 ? 'bg-red-50' : row.gapRate < 30 ? 'bg-green-50' : '';
+              const careHeat = row.careRate >= 55 ? 'bg-green-50' : row.careRate < 35 ? 'bg-red-50' : '';
+              const sviHeat = row.avgSvi >= 0.65 ? 'bg-red-50' : row.avgSvi < 0.5 ? 'bg-green-50' : '';
+              const rowStripe = i % 2 === 1 ? 'bg-arc-cream/30' : '';
               return (
                 <tr
                   key={row.state}
                   className={`border-b border-arc-gray-100 ${
-                    urgency === 'critical' ? 'border-l-3 border-l-arc-red bg-red-50/30' :
-                    urgency === 'high' ? 'border-l-3 border-l-arc-caution bg-amber-50/30' : ''
-                  }`}
+                    urgency === 'critical' ? 'border-l-3 border-l-arc-red' :
+                    urgency === 'high' ? 'border-l-3 border-l-arc-caution' : ''
+                  } ${rowStripe}`}
                 >
                   <td className="py-2 px-2 text-arc-gray-500">{i + 1}</td>
                   <td className="py-2 px-2 font-semibold">{row.state}</td>
@@ -169,9 +173,9 @@ function OpportunityTable({ data }: { data: GapAnalysisData[] }) {
                     </span>
                   </td>
                   <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatNumber(row.gapCount)}</td>
-                  <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatSvi(row.avgSvi)}</td>
-                  <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatPercent(row.gapRate)}</td>
-                  <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatPercent(row.careRate)}</td>
+                  <td className={`py-2 px-2 text-right font-[family-name:var(--font-data)] ${sviHeat}`}>{formatSvi(row.avgSvi)}</td>
+                  <td className={`py-2 px-2 text-right font-[family-name:var(--font-data)] ${gapHeat}`}>{formatPercent(row.gapRate)}</td>
+                  <td className={`py-2 px-2 text-right font-[family-name:var(--font-data)] ${careHeat}`}>{formatPercent(row.careRate)}</td>
                   <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatNumber(row.totalFires)}</td>
                 </tr>
               );
@@ -192,8 +196,8 @@ export default function GapAnalysis() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
 
   useEffect(() => {
-    loadGapAnalysis().then(setGapData);
-    loadSummary().then(setSummary);
+    Promise.all([loadGapAnalysis(), loadSummary()])
+      .then(([g, s]) => { setGapData(g); setSummary(s); });
   }, []);
 
   if (!gapData || !summary) {

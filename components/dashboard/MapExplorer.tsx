@@ -17,7 +17,7 @@ const INITIAL_VIEW = {
 
 const CATEGORY_RGB: Record<number, [number, number, number]> = {
   0: [45, 90, 39],    // care - green
-  1: [74, 74, 74],    // notification - gray
+  1: [30, 74, 109],   // notification - blue
   2: [237, 27, 46],   // gap - red
 };
 
@@ -31,9 +31,17 @@ interface FilterState {
   sviMin: number;
 }
 
+interface PointDatum {
+  position: [number, number];
+  cat: number;
+  svi: number;
+  chapter?: string;
+  region?: string;
+}
+
 function DeckGLMap({ filteredData, gapData, viewMode }: {
-  filteredData: { position: [number, number]; cat: number; svi: number }[];
-  gapData: { position: [number, number]; cat: number; svi: number }[];
+  filteredData: PointDatum[];
+  gapData: PointDatum[];
   viewMode: ViewMode;
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -65,8 +73,20 @@ function DeckGLMap({ filteredData, gapData, viewMode }: {
       map.on('load', () => {
         if (cleanup) return;
 
+        const catLabels = ['RC Care', 'RC Notification', 'No Notification'];
         const overlay = new deckMapbox.MapboxOverlay({
           layers: buildLayers(layers.ScatterplotLayer, aggLayers.HeatmapLayer),
+          getTooltip: ({ object }: { object?: PointDatum }) => {
+            if (!object) return null;
+            const label = catLabels[object.cat] || 'Unknown';
+            const lines = [
+              `<strong>${label}</strong>`,
+              `SVI: ${object.svi.toFixed(3)}`,
+            ];
+            if (object.chapter) lines.push(`Chapter: ${object.chapter}`);
+            if (object.region) lines.push(`Region: ${object.region}`);
+            return { html: lines.join('<br/>'), style: { fontFamily: 'var(--font-body)', fontSize: '12px', padding: '8px 12px', background: 'white', border: '1px solid #e5e5e5', borderRadius: '4px', color: '#1a1a1a' } };
+          },
         });
 
         map.addControl(overlay);
@@ -152,13 +172,15 @@ export default function MapExplorer() {
   });
 
   useEffect(() => {
-    loadFirePoints().then(setPoints);
-    loadSummary().then(setSummary);
+    Promise.all([loadFirePoints(), loadSummary()])
+      .then(([p, s]) => { setPoints(p); setSummary(s); });
   }, []);
 
   const filteredData = useMemo(() => {
     if (!points) return [];
-    const result: { position: [number, number]; cat: number; svi: number }[] = [];
+    const result: PointDatum[] = [];
+    const chapters = points.chapters || [];
+    const regions = points.regions || [];
     for (let i = 0; i < points.count; i++) {
       const cat = points.cat[i];
       const month = points.month[i];
@@ -168,7 +190,15 @@ export default function MapExplorer() {
       if (cat === 2 && !filters.showGap) continue;
       if (month < filters.monthRange[0] || month > filters.monthRange[1]) continue;
       if (svi < filters.sviMin) continue;
-      result.push({ position: [points.lon[i], points.lat[i]], cat, svi });
+      const chIdx = points.ch?.[i] ?? -1;
+      const rgIdx = points.rg?.[i] ?? -1;
+      result.push({
+        position: [points.lon[i], points.lat[i]],
+        cat,
+        svi,
+        chapter: chIdx >= 0 ? chapters[chIdx] : undefined,
+        region: rgIdx >= 0 ? regions[rgIdx] : undefined,
+      });
     }
     return result;
   }, [points, filters]);
@@ -201,6 +231,9 @@ export default function MapExplorer() {
         </h2>
         <p className="text-sm text-arc-gray-500 mt-1">
           {formatNumber(points.count)} fire events rendered in real-time
+        </p>
+        <p className="text-xs text-arc-gray-700 mt-2 bg-arc-cream rounded px-3 py-2">
+          Showing {formatNumber(viewportStats.total)} points — {formatNumber(viewportStats.gap)} ({viewportStats.total > 0 ? ((viewportStats.gap / viewportStats.total) * 100).toFixed(1) : 0}%) have no RC notification. Avg SVI: {formatSvi(viewportStats.avgSvi)}.
         </p>
       </div>
 

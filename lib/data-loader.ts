@@ -8,6 +8,8 @@ import type {
   GapAnalysisData,
   RiskDistributionData,
   FirePointsData,
+  CountyData,
+  OrgUnitData,
 } from './types';
 
 const cache = new Map<string, unknown>();
@@ -30,3 +32,7 @@ export const loadDepartments = () => fetchJson<DepartmentData[]>('/data/by-depar
 export const loadGapAnalysis = () => fetchJson<GapAnalysisData[]>('/data/gap-analysis.json');
 export const loadRiskDistribution = () => fetchJson<RiskDistributionData>('/data/risk-distribution.json');
 export const loadFirePoints = () => fetchJson<FirePointsData>('/data/fires-points.json');
+export const loadCounties = () => fetchJson<CountyData[]>('/data/by-county.json');
+export const loadChapters = () => fetchJson<OrgUnitData[]>('/data/by-chapter.json');
+export const loadRegions = () => fetchJson<OrgUnitData[]>('/data/by-region.json');
+export const loadDivisions = () => fetchJson<OrgUnitData[]>('/data/by-division.json');

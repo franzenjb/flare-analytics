@@ -1,16 +1,21 @@
 """
 FLARE Analytics Data Pipeline
 Processes Match Map.xlsx (103,400 fire events) into optimized JSON files for the dashboard.
+Enriches each event with Red Cross organizational hierarchy (Chapter/Region/Division) via ZIP code lookup.
 """
 
 import openpyxl
 import json
 import os
+import csv
 from collections import defaultdict
 from datetime import datetime
 
 INPUT_FILE = os.path.expanduser("~/Desktop/FlareData/Match Map.xlsx")
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public", "data")
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+ZIP_LOOKUP_FILE = os.path.join(SCRIPTS_DIR, "zip_to_redcross_comprehensive.csv")
+DEMOGRAPHICS_FILE = os.path.join(SCRIPTS_DIR, "county_demographics.json")
 
 # Master Label mapping to short keys
 LABEL_MAP = {
@@ -111,8 +116,51 @@ def extract_state(address):
     return None
 
 
+def load_zip_lookup():
+    """Load ZIP → RC hierarchy lookup table. Returns dict keyed by 5-digit ZIP string."""
+    lookup = {}
+    with open(ZIP_LOOKUP_FILE, "r") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            zip_code = row["ZIP_CODE"].strip().zfill(5)
+            lookup[zip_code] = {
+                "county_fips": row.get("COUNTY_FIPS", "").strip(),
+                "county": row.get("County", "").strip(),
+                "chapter": row.get("Chapter", "").strip(),
+                "region": row.get("Region", "").strip(),
+                "division": row.get("Division", "").strip(),
+            }
+    return lookup
+
+
+def load_demographics():
+    """Load county demographics keyed by FIPS code."""
+    with open(DEMOGRAPHICS_FILE, "r") as f:
+        return json.load(f)
+
+
+def extract_zip(row, col_map):
+    """Extract first 5-digit ZIP from address columns B-E."""
+    for col_key in ("address", "nfirs_addr", "rc_respond_addr", "rc_care_addr"):
+        val = row[col_map[col_key]]
+        if val:
+            zips = re.findall(r'\b(\d{5})\b', str(val))
+            if zips:
+                return zips[-1]
+    return None
+
+
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    # Load RC hierarchy lookup + demographics
+    print("Loading ZIP → RC hierarchy lookup...")
+    zip_lookup = load_zip_lookup()
+    print(f"  Loaded {len(zip_lookup):,} ZIP codes")
+
+    print("Loading county demographics...")
+    demographics = load_demographics()
+    print(f"  Loaded {len(demographics):,} counties")
 
     print(f"Loading {INPUT_FILE}...")
     wb = openpyxl.load_workbook(INPUT_FILE, read_only=True, data_only=True)
@@ -150,10 +198,19 @@ def main():
     points_cat = []  # 0=care, 1=notification, 2=gap
     points_svi = []
     points_month = []
+    points_chapter = []  # index into chapter_list for map hover
+    points_region = []   # index into region_list for map hover
+
+    # Lookup lists for compact point encoding (index → name)
+    chapter_list = []
+    chapter_idx_map = {}
+    region_list = []
+    region_idx_map = {}
 
     totals = {"care": 0, "notification": 0, "gap": 0, "total": 0}
     svi_sum = 0.0
     svi_count = 0
+    zip_match_count = 0
 
     monthly = defaultdict(lambda: {"care": 0, "notification": 0, "gap": 0, "total": 0})
     daily = defaultdict(lambda: {"care": 0, "notification": 0, "gap": 0, "total": 0})
@@ -166,6 +223,22 @@ def main():
         "care": 0, "notification": 0, "gap": 0, "total": 0,
         "svi_sum": 0.0, "svi_count": 0,
     })
+
+    # New org hierarchy accumulators
+    def _org_acc():
+        return {
+            "care": 0, "notification": 0, "gap": 0, "total": 0,
+            "svi_sum": 0.0, "svi_count": 0,
+            "monthly": defaultdict(lambda: {"care": 0, "notification": 0, "gap": 0, "total": 0}),
+        }
+
+    by_county = defaultdict(_org_acc)     # keyed by county_fips
+    by_chapter = defaultdict(_org_acc)    # keyed by chapter name
+    by_region = defaultdict(_org_acc)     # keyed by region name
+    by_division = defaultdict(_org_acc)   # keyed by division name
+
+    # Track county metadata (fips → {name, state, chapter, region, division})
+    county_meta = {}
 
     # SVI histogram bins (0.0-0.1, 0.1-0.2, ..., 0.9-1.0)
     svi_bins_total = [0] * 10
@@ -203,6 +276,64 @@ def main():
 
         state = extract_state(address)
 
+        # ZIP extraction + RC hierarchy lookup
+        zip_code = extract_zip(row, COL)
+        hierarchy = zip_lookup.get(zip_code) if zip_code else None
+        chapter_name = ""
+        region_name = ""
+        division_name = ""
+        county_fips = ""
+
+        if hierarchy:
+            zip_match_count += 1
+            chapter_name = hierarchy["chapter"]
+            region_name = hierarchy["region"]
+            division_name = hierarchy["division"]
+            county_fips = hierarchy["county_fips"]
+            county_name = hierarchy["county"]
+
+            # Track county metadata
+            if county_fips and county_fips not in county_meta:
+                county_meta[county_fips] = {
+                    "name": county_name,
+                    "state": state or "",
+                    "chapter": chapter_name,
+                    "region": region_name,
+                    "division": division_name,
+                }
+
+            # Accumulate by org hierarchy
+            for key, acc in [
+                (county_fips, by_county),
+                (chapter_name, by_chapter),
+                (region_name, by_region),
+                (division_name, by_division),
+            ]:
+                if key:
+                    acc[key][label] += 1
+                    acc[key]["total"] += 1
+                    if svi is not None:
+                        acc[key]["svi_sum"] += svi
+                        acc[key]["svi_count"] += 1
+                    if date:
+                        m = date.strftime("%Y-%m")
+                        acc[key]["monthly"][m][label] += 1
+                        acc[key]["monthly"][m]["total"] += 1
+
+        # Build chapter/region index for compact map point encoding
+        ch_idx = -1
+        rg_idx = -1
+        if chapter_name:
+            if chapter_name not in chapter_idx_map:
+                chapter_idx_map[chapter_name] = len(chapter_list)
+                chapter_list.append(chapter_name)
+            ch_idx = chapter_idx_map[chapter_name]
+        if region_name:
+            if region_name not in region_idx_map:
+                region_idx_map[region_name] = len(region_list)
+                region_list.append(region_name)
+            rg_idx = region_idx_map[region_name]
+
         # Category index for compact storage
         cat_idx = {"care": 0, "notification": 1, "gap": 2}[label]
 
@@ -212,6 +343,8 @@ def main():
         points_cat.append(cat_idx)
         points_svi.append(round(svi, 3) if svi is not None else 0)
         points_month.append(date.month if date else 0)
+        points_chapter.append(ch_idx)
+        points_region.append(rg_idx)
 
         # Totals
         totals[label] += 1
@@ -273,16 +406,22 @@ def main():
     wb.close()
     print(f"\nProcessed: {processed:,} | Skipped: {skipped}")
     print(f"Totals: {totals}")
+    print(f"ZIP matches: {zip_match_count:,} ({zip_match_count/processed*100:.1f}%)")
+    print(f"Counties: {len(by_county)} | Chapters: {len(by_chapter)} | Regions: {len(by_region)} | Divisions: {len(by_division)}")
 
     # === Write JSON files ===
 
-    # 1. fires-points.json (flat arrays for deck.gl)
+    # 1. fires-points.json (flat arrays for deck.gl, now with chapter/region indices)
     points_data = {
         "lat": points_lat,
         "lon": points_lon,
         "cat": points_cat,
         "svi": points_svi,
         "month": points_month,
+        "ch": points_chapter,
+        "rg": points_region,
+        "chapters": chapter_list,
+        "regions": region_list,
         "count": len(points_lat),
     }
     write_json("fires-points.json", points_data)
@@ -414,6 +553,109 @@ def main():
         "gap": svi_bins_gap,
     }
     write_json("risk-distribution.json", risk_dist)
+
+    # === New Phase 2: Org Hierarchy JSON files ===
+
+    def build_org_output(acc, meta_fn=None):
+        """Build sorted output for an org-level accumulator."""
+        out = []
+        for key, data in sorted(acc.items(), key=lambda x: -x[1]["total"]):
+            if not key:
+                continue
+            avg = round(data["svi_sum"] / data["svi_count"], 3) if data["svi_count"] > 0 else 0
+            gap_rate = round(data["gap"] / data["total"] * 100, 1) if data["total"] > 0 else 0
+            care_rate = round(data["care"] / data["total"] * 100, 1) if data["total"] > 0 else 0
+            monthly_sorted = []
+            for m in sorted(data["monthly"].keys()):
+                md = data["monthly"][m]
+                monthly_sorted.append({
+                    "month": m, "care": md["care"],
+                    "notification": md["notification"],
+                    "gap": md["gap"], "total": md["total"],
+                })
+            entry = {
+                "name": key,
+                "total": data["total"],
+                "care": data["care"],
+                "notification": data["notification"],
+                "gap": data["gap"],
+                "careRate": care_rate,
+                "gapRate": gap_rate,
+                "avgSvi": avg,
+                "monthly": monthly_sorted,
+            }
+            # Add demographics if available
+            if meta_fn:
+                meta = meta_fn(key)
+                if meta:
+                    entry.update(meta)
+            out.append(entry)
+        return out
+
+    # 10. by-county.json — enriched with demographics
+    def county_meta_fn(fips):
+        meta = county_meta.get(fips, {})
+        demo = demographics.get(fips, {})
+        total = by_county[fips]["total"]
+        pop = demo.get("p", 0)
+        return {
+            "fips": fips,
+            "county": meta.get("name", ""),
+            "state": meta.get("state", ""),
+            "chapter": meta.get("chapter", ""),
+            "region": meta.get("region", ""),
+            "division": meta.get("division", ""),
+            "population": pop,
+            "medianIncome": demo.get("i", 0),
+            "households": demo.get("hh", 0),
+            "poverty": demo.get("pov", 0),
+            "medianAge": demo.get("age", 0),
+            "diversityIndex": demo.get("div", 0),
+            "homeValue": demo.get("hv", 0),
+            "firesPer10k": round(total / pop * 10000, 1) if pop > 0 else 0,
+        }
+    county_out = build_org_output(by_county, county_meta_fn)
+    write_json("by-county.json", county_out)
+
+    # 11. by-chapter.json
+    def chapter_meta_fn(chapter_name):
+        # Aggregate demographics across counties in this chapter
+        counties = [f for f, m in county_meta.items() if m.get("chapter") == chapter_name]
+        pop = sum(demographics.get(f, {}).get("p", 0) for f in counties)
+        total = by_chapter[chapter_name]["total"]
+        return {
+            "countyCount": len(counties),
+            "population": pop,
+            "firesPer10k": round(total / pop * 10000, 1) if pop > 0 else 0,
+        }
+    chapter_out = build_org_output(by_chapter, chapter_meta_fn)
+    write_json("by-chapter.json", chapter_out)
+
+    # 12. by-region.json
+    def region_meta_fn(region_name):
+        counties = [f for f, m in county_meta.items() if m.get("region") == region_name]
+        pop = sum(demographics.get(f, {}).get("p", 0) for f in counties)
+        total = by_region[region_name]["total"]
+        return {
+            "countyCount": len(counties),
+            "population": pop,
+            "firesPer10k": round(total / pop * 10000, 1) if pop > 0 else 0,
+        }
+    region_out = build_org_output(by_region, region_meta_fn)
+    write_json("by-region.json", region_out)
+
+    # 13. by-division.json
+    def division_meta_fn(div_name):
+        counties = [f for f, m in county_meta.items() if m.get("division") == div_name]
+        pop = sum(demographics.get(f, {}).get("p", 0) for f in counties)
+        total = by_division[div_name]["total"]
+        return {
+            "countyCount": len(counties),
+            "population": pop,
+            "firesPer10k": round(total / pop * 10000, 1) if pop > 0 else 0,
+        }
+    division_out = build_org_output(by_division, division_meta_fn)
+    write_json("by-division.json", division_out)
 
     print(f"\nAll JSON files written to {OUTPUT_DIR}/")
     for f in os.listdir(OUTPUT_DIR):

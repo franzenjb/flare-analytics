@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
   BarChart, Bar, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, Cell,
+  ResponsiveContainer, Legend, Cell, ReferenceLine, ReferenceArea,
 } from 'recharts';
 import { Search, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import { loadDepartments } from '@/lib/data-loader';
@@ -174,6 +174,10 @@ export default function DepartmentIntel() {
         <ResponsiveContainer width="100%" height={350}>
           <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
+            {/* Danger zone: high volume + low care rate (bottom-right) */}
+            <ReferenceArea x1={100} x2={scatterData.reduce((m, d) => Math.max(m, d.total), 0) * 1.1} y1={0} y2={30} fill="#ED1B2E" fillOpacity={0.04} />
+            <ReferenceLine y={30} stroke="#ED1B2E" strokeDasharray="4 4" strokeOpacity={0.5} label={{ value: '30% care', position: 'right', fontSize: 10, fill: '#ED1B2E' }} />
+            <ReferenceLine x={100} stroke="#a3a3a3" strokeDasharray="4 4" strokeOpacity={0.5} label={{ value: '100 fires', position: 'top', fontSize: 10, fill: '#737373' }} />
             <XAxis
               type="number"
               dataKey="total"
@@ -230,7 +234,7 @@ export default function DepartmentIntel() {
                 value={search}
                 onChange={e => { setSearch(e.target.value); setPage(0); }}
                 placeholder="Search departments..."
-                className="pl-8 pr-3 py-1.5 text-xs border border-arc-gray-100 rounded bg-arc-cream focus:outline-none focus:border-arc-gray-300 w-56"
+                className="pl-8 pr-3 py-1.5 text-xs border border-arc-gray-100 rounded bg-arc-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-arc-red focus-visible:ring-offset-1 w-56"
               />
             </div>
             <button
@@ -244,7 +248,7 @@ export default function DepartmentIntel() {
 
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
-            <thead>
+            <thead className="sticky top-0 bg-white z-10">
               <tr className="border-b-2 border-arc-black">
                 {([
                   ['name', 'Department', 'left'],
@@ -269,26 +273,31 @@ export default function DepartmentIntel() {
               </tr>
             </thead>
             <tbody>
-              {paged.map(dept => (
-                <tr key={dept.name} className="border-b border-arc-gray-100 hover:bg-arc-cream/50">
-                  <td className="py-2 px-2 max-w-[200px] truncate" title={dept.name}>{dept.name}</td>
-                  <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatNumber(dept.total)}</td>
-                  <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatNumber(dept.care)}</td>
-                  <td className="py-2 px-2 text-right font-[family-name:var(--font-data)] text-arc-red">{formatNumber(dept.gap)}</td>
-                  <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">
-                    <span className={dept.careRate >= 60 ? 'text-arc-success' : dept.careRate < 30 ? 'text-arc-red' : ''}>
-                      {formatPercent(dept.careRate)}
-                    </span>
-                  </td>
-                  <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">
-                    <span className={dept.gapRate >= 50 ? 'text-arc-red' : ''}>
-                      {formatPercent(dept.gapRate)}
-                    </span>
-                  </td>
-                  <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatSvi(dept.avgSvi)}</td>
-                  <td className="py-2 px-2 text-right font-[family-name:var(--font-data)] font-medium">{dept.gapScore.toFixed(0)}</td>
-                </tr>
-              ))}
+              {paged.map((dept, idx) => {
+                const careHeat = dept.careRate >= 55 ? 'bg-green-50' : dept.careRate < 35 ? 'bg-red-50' : '';
+                const gapHeat = dept.gapRate >= 50 ? 'bg-red-50' : dept.gapRate < 30 ? 'bg-green-50' : '';
+                const rowStripe = idx % 2 === 1 ? 'bg-arc-cream/30' : '';
+                return (
+                  <tr key={dept.name} className={`border-b border-arc-gray-100 hover:bg-arc-cream/50 ${rowStripe}`}>
+                    <td className="py-2 px-2 max-w-[200px] truncate" title={dept.name}>{dept.name}</td>
+                    <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatNumber(dept.total)}</td>
+                    <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatNumber(dept.care)}</td>
+                    <td className="py-2 px-2 text-right font-[family-name:var(--font-data)] text-arc-red">{formatNumber(dept.gap)}</td>
+                    <td className={`py-2 px-2 text-right font-[family-name:var(--font-data)] ${careHeat}`}>
+                      <span className={dept.careRate >= 60 ? 'text-arc-success' : dept.careRate < 30 ? 'text-arc-red' : ''}>
+                        {formatPercent(dept.careRate)}
+                      </span>
+                    </td>
+                    <td className={`py-2 px-2 text-right font-[family-name:var(--font-data)] ${gapHeat}`}>
+                      <span className={dept.gapRate >= 50 ? 'text-arc-red' : ''}>
+                        {formatPercent(dept.gapRate)}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-right font-[family-name:var(--font-data)]">{formatSvi(dept.avgSvi)}</td>
+                    <td className="py-2 px-2 text-right font-[family-name:var(--font-data)] font-medium">{dept.gapScore.toFixed(0)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

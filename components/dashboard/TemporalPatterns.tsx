@@ -55,6 +55,7 @@ function CalendarHeatmap({ data, mode }: { data: DailyData[]; mode: 'total' | 'g
   }, [data, mode]);
 
   const [hovered, setHovered] = useState<typeof cells[0] | null>(null);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
 
   function getColor(value: number, max: number) {
     if (value < 0) return '#f7f5f2'; // outside year
@@ -78,7 +79,14 @@ function CalendarHeatmap({ data, mode }: { data: DailyData[]; mode: 'total' | 'g
 
   return (
     <div className="relative">
-      <div className="overflow-x-auto">
+      <div
+        className="overflow-x-auto"
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+        }}
+        onMouseLeave={() => { setHovered(null); setMousePos(null); }}
+      >
         <svg width={svgWidth} height={7 * (CELL_SIZE + CELL_GAP) + 30}>
           {/* Day labels */}
           {DAYS_OF_WEEK.map((day, i) => (
@@ -124,8 +132,11 @@ function CalendarHeatmap({ data, mode }: { data: DailyData[]; mode: 'total' | 'g
           ))}
         </svg>
       </div>
-      {hovered && hovered.value >= 0 && hovered.data && (
-        <div className="absolute top-0 right-0 bg-white border border-arc-gray-100 rounded p-3 shadow-sm text-xs">
+      {hovered && hovered.value >= 0 && hovered.data && mousePos && (
+        <div
+          className="absolute bg-white border border-arc-gray-100 rounded p-3 shadow-sm text-xs pointer-events-none z-10"
+          style={{ left: mousePos.x + 12, top: mousePos.y - 70 }}
+        >
           <p className="font-semibold">{hovered.date}</p>
           <p>Total: {formatNumber(hovered.data.total)}</p>
           <p>Care: {formatNumber(hovered.data.care)}</p>
@@ -154,8 +165,8 @@ export default function TemporalPatterns() {
   const [calendarMode, setCalendarMode] = useState<'total' | 'gap'>('total');
 
   useEffect(() => {
-    loadDaily().then(setDaily);
-    loadMonthly().then(setMonthly);
+    Promise.all([loadDaily(), loadMonthly()])
+      .then(([d, m]) => { setDaily(d); setMonthly(m); });
   }, []);
 
   const dowData = useMemo(() => {
@@ -178,6 +189,16 @@ export default function TemporalPatterns() {
       'No Notification': Math.round(dows[i].gap / (dows[i].count || 1)),
     }));
   }, [daily]);
+
+  // Auto-generated insight — must be before early return to preserve hooks order
+  const insight = useMemo(() => {
+    if (!dowData.length) return '';
+    const totals = dowData.map(d => ({ day: d.day, total: d['RC Care'] + d['RC Notification'] + d['No Notification'] }));
+    const peak = totals.reduce((a, b) => a.total > b.total ? a : b);
+    const trough = totals.reduce((a, b) => a.total < b.total ? a : b);
+    const pct = ((peak.total / trough.total - 1) * 100).toFixed(0);
+    return `Fires peak on ${peak.day}s — ${pct}% higher than ${trough.day}s.`;
+  }, [dowData]);
 
   if (!daily || !monthly) {
     return (
@@ -203,6 +224,7 @@ export default function TemporalPatterns() {
           Temporal Patterns
         </h2>
         <p className="text-sm text-arc-gray-500 mt-1">When fires happen and when RC misses them</p>
+        {insight && <p className="text-xs text-arc-gray-700 mt-2 bg-arc-cream rounded px-3 py-2">{insight}</p>}
       </div>
 
       {/* Calendar Heatmap */}

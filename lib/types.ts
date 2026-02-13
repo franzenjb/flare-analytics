@@ -84,14 +84,59 @@ export interface FirePointsData {
   cat: number[];  // 0=care, 1=notification, 2=gap
   svi: number[];
   month: number[];
+  ch: number[];   // chapter index (-1 = unknown)
+  rg: number[];   // region index (-1 = unknown)
+  chapters: string[];
+  regions: string[];
   count: number;
 }
 
-export type TabId = 'executive' | 'map' | 'gap' | 'temporal' | 'departments' | 'regional';
+export interface CountyData {
+  name: string;
+  fips: string;
+  county: string;
+  state: string;
+  chapter: string;
+  region: string;
+  division: string;
+  total: number;
+  care: number;
+  notification: number;
+  gap: number;
+  careRate: number;
+  gapRate: number;
+  avgSvi: number;
+  population: number;
+  medianIncome: number;
+  households: number;
+  poverty: number;
+  medianAge: number;
+  diversityIndex: number;
+  homeValue: number;
+  firesPer10k: number;
+  monthly: MonthlyData[];
+}
+
+export interface OrgUnitData {
+  name: string;
+  total: number;
+  care: number;
+  notification: number;
+  gap: number;
+  careRate: number;
+  gapRate: number;
+  avgSvi: number;
+  countyCount: number;
+  population: number;
+  firesPer10k: number;
+  monthly: MonthlyData[];
+}
+
+export type TabId = 'executive' | 'map' | 'gap' | 'temporal' | 'departments' | 'regional' | 'organization';
 
 export const CATEGORY_COLORS = {
   care: '#2d5a27',
-  notification: '#4a4a4a',
+  notification: '#1e4a6d',
   gap: '#ED1B2E',
 } as const;
 

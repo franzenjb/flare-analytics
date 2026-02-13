@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, lazy, Suspense } from 'react';
+import { useState, lazy, Suspense, useCallback } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import type { TabId } from '@/lib/types';
 import {
   LayoutDashboard,
@@ -9,6 +10,7 @@ import {
   Calendar,
   Building2,
   Globe,
+  Network,
 } from 'lucide-react';
 
 const ExecutiveDashboard = lazy(() => import('@/components/dashboard/ExecutiveDashboard'));
@@ -17,6 +19,7 @@ const GapAnalysis = lazy(() => import('@/components/dashboard/GapAnalysis'));
 const TemporalPatterns = lazy(() => import('@/components/dashboard/TemporalPatterns'));
 const DepartmentIntel = lazy(() => import('@/components/dashboard/DepartmentIntel'));
 const RegionalDeepDive = lazy(() => import('@/components/dashboard/RegionalDeepDive'));
+const OrganizationView = lazy(() => import('@/components/dashboard/OrganizationView'));
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'executive', label: 'Executive', icon: LayoutDashboard },
@@ -25,7 +28,10 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'temporal', label: 'Temporal', icon: Calendar },
   { id: 'departments', label: 'Departments', icon: Building2 },
   { id: 'regional', label: 'Regional', icon: Globe },
+  { id: 'organization', label: 'Organization', icon: Network },
 ];
+
+const VALID_TABS = new Set<TabId>(['executive', 'map', 'gap', 'temporal', 'departments', 'regional', 'organization']);
 
 function TabSkeleton() {
   return (
@@ -41,13 +47,23 @@ function TabSkeleton() {
   );
 }
 
-export default function Home() {
-  const [activeTab, setActiveTab] = useState<TabId>('executive');
+function Dashboard() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const tabParam = searchParams.get('tab') as TabId | null;
+  const initialTab = tabParam && VALID_TABS.has(tabParam) ? tabParam : 'executive';
+  const [activeTab, setActiveTabState] = useState<TabId>(initialTab);
+
+  const setActiveTab = useCallback((tab: TabId) => {
+    setActiveTabState(tab);
+    const url = tab === 'executive' ? '/' : `/?tab=${tab}`;
+    router.replace(url, { scroll: false });
+  }, [router]);
 
   return (
     <div className="min-h-screen bg-arc-cream">
       {/* Header */}
-      <header className="bg-white border-b-[3px] border-arc-black">
+      <header className="bg-white border-b-[3px] border-arc-black print:hidden">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
@@ -76,14 +92,17 @@ export default function Home() {
       </header>
 
       {/* Tab Navigation */}
-      <nav className="bg-white border-b border-arc-gray-100 sticky top-0 z-50">
+      <nav className="bg-white border-b border-arc-gray-100 sticky top-0 z-50 print:hidden">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex gap-0 overflow-x-auto">
+          <div className="flex gap-0 overflow-x-auto" role="tablist" aria-label="Dashboard sections">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
+                role="tab"
+                aria-selected={activeTab === id}
+                aria-controls={`tabpanel-${id}`}
                 onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-arc-red focus-visible:ring-offset-1 ${
                   activeTab === id
                     ? 'border-arc-red text-arc-black'
                     : 'border-transparent text-arc-gray-500 hover:text-arc-gray-700 hover:border-arc-gray-300'
@@ -98,7 +117,7 @@ export default function Home() {
       </nav>
 
       {/* Tab Content */}
-      <main className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main id={`tabpanel-${activeTab}`} role="tabpanel" aria-label={TABS.find(t => t.id === activeTab)?.label} className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Suspense fallback={<TabSkeleton />}>
           {activeTab === 'executive' && <ExecutiveDashboard />}
           {activeTab === 'map' && <MapExplorer />}
@@ -106,11 +125,12 @@ export default function Home() {
           {activeTab === 'temporal' && <TemporalPatterns />}
           {activeTab === 'departments' && <DepartmentIntel />}
           {activeTab === 'regional' && <RegionalDeepDive />}
+          {activeTab === 'organization' && <OrganizationView />}
         </Suspense>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-arc-gray-100 bg-white mt-8">
+      <footer className="border-t border-arc-gray-100 bg-white mt-8 print:hidden">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-xs text-arc-gray-500 text-center">
             American Red Cross — FLARE Analytics — Data through December 2024
@@ -118,5 +138,13 @@ export default function Home() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<TabSkeleton />}>
+      <Dashboard />
+    </Suspense>
   );
 }

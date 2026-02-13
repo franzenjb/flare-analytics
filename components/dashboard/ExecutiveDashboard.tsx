@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, Cell,
@@ -30,44 +30,66 @@ function KpiCard({ label, value, subtext, icon: Icon, highlight }: {
 
 function EngagementFunnel({ data }: { data: FunnelData }) {
   const maxVal = data.stages[0].value;
+  const stageCount = data.stages.length;
+  const svgWidth = 500;
+  const svgHeight = stageCount * 70 + 10;
+  const maxTrapWidth = svgWidth - 160; // leave room for labels
+  const labelX = 0; // left side for labels
+  const trapX = 140; // start of trapezoid area
+
   return (
     <div className="bg-white rounded p-5 border border-arc-gray-100">
       <h3 className="font-[family-name:var(--font-headline)] text-base font-bold text-arc-black mb-4">
         Engagement Pipeline
       </h3>
-      <div className="space-y-3">
+      <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full" style={{ maxHeight: 320 }}>
         {data.stages.map((stage, i) => {
-          const pct = (stage.value / maxVal) * 100;
+          const pct = stage.value / maxVal;
+          const nextPct = i < stageCount - 1 ? data.stages[i + 1].value / maxVal : pct * 0.8;
+          const topWidth = pct * maxTrapWidth;
+          const bottomWidth = nextPct * maxTrapWidth;
+          const y = i * 70 + 5;
+          const h = 50;
+          const centerX = trapX + maxTrapWidth / 2;
           const lossPct = i > 0
             ? (((data.stages[i - 1].value - stage.value) / data.stages[i - 1].value) * 100).toFixed(0)
             : null;
+
           return (
-            <div key={stage.label}>
+            <g key={stage.label}>
+              {/* Trapezoid shape */}
+              <path
+                d={`M ${centerX - topWidth / 2} ${y}
+                    L ${centerX + topWidth / 2} ${y}
+                    L ${centerX + bottomWidth / 2} ${y + h}
+                    L ${centerX - bottomWidth / 2} ${y + h} Z`}
+                fill={stage.color}
+                opacity={0.85}
+              />
+              {/* Stage label (left) */}
+              <text x={labelX} y={y + h / 2 + 1} fontSize={11} fill="#4a4a4a" dominantBaseline="middle">
+                {stage.label}
+              </text>
+              {/* Value + percent (center of trapezoid) */}
+              <text x={centerX} y={y + h / 2 - 4} textAnchor="middle" fontSize={12} fontWeight={600} fill="#ffffff" dominantBaseline="middle"
+                fontFamily="var(--font-data)">
+                {formatNumber(stage.value)}
+              </text>
+              <text x={centerX} y={y + h / 2 + 10} textAnchor="middle" fontSize={10} fill="rgba(255,255,255,0.8)" dominantBaseline="middle"
+                fontFamily="var(--font-data)">
+                {(pct * 100).toFixed(0)}%
+              </text>
+              {/* Drop annotation */}
               {lossPct && (
-                <div className="text-[11px] text-arc-gray-500 mb-1 pl-2 font-[family-name:var(--font-data)]">
-                  -{lossPct}% drop
-                </div>
+                <text x={centerX + topWidth / 2 + 8} y={y + 6} fontSize={9} fill="#ED1B2E"
+                  fontFamily="var(--font-data)">
+                  -{lossPct}%
+                </text>
               )}
-              <div className="flex items-center gap-3">
-                <div className="w-32 text-xs text-arc-gray-700 text-right shrink-0">{stage.label}</div>
-                <div className="flex-1 bg-arc-gray-100 rounded-sm h-8 relative overflow-hidden">
-                  <div
-                    className="h-full rounded-sm flex items-center px-2"
-                    style={{ width: `${pct}%`, backgroundColor: stage.color }}
-                  >
-                    <span className="font-[family-name:var(--font-data)] text-xs text-white font-medium">
-                      {formatNumber(stage.value)}
-                    </span>
-                  </div>
-                </div>
-                <div className="w-12 text-right font-[family-name:var(--font-data)] text-xs text-arc-gray-500">
-                  {pct.toFixed(0)}%
-                </div>
-              </div>
-            </div>
+            </g>
           );
         })}
-      </div>
+      </svg>
     </div>
   );
 }
@@ -118,7 +140,7 @@ function RiskHistogram({ data }: { data: RiskDistributionData }) {
       </h3>
       <p className="text-xs text-arc-gray-500 mb-4">SVI Risk Score — higher = more vulnerable</p>
       <ResponsiveContainer width="100%" height={280}>
-        <BarChart data={chartData} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
+        <BarChart data={chartData} barCategoryGap="20%" margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
           <XAxis dataKey="bin" tick={{ fontSize: 10 }} />
           <YAxis tick={{ fontSize: 11 }} />
@@ -127,8 +149,8 @@ function RiskHistogram({ data }: { data: RiskDistributionData }) {
             formatter={(value) => formatNumber(Number(value))}
           />
           <Legend wrapperStyle={{ fontSize: 11 }} />
-          <Bar dataKey="Total" fill="#a3a3a3" radius={[2, 2, 0, 0]} />
-          <Bar dataKey="Gap (No Notification)" fill="#ED1B2E" radius={[2, 2, 0, 0]} />
+          <Bar dataKey="Total" fill="#d4d4d4" stroke="#a3a3a3" strokeWidth={1} radius={[2, 2, 0, 0]} />
+          <Bar dataKey="Gap (No Notification)" fill="#ED1B2E" fillOpacity={0.8} radius={[2, 2, 0, 0]} barSize={20} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -170,12 +192,23 @@ export default function ExecutiveDashboard() {
   const [states, setStates] = useState<StateData[] | null>(null);
 
   useEffect(() => {
-    loadSummary().then(setSummary);
-    loadFunnel().then(setFunnel);
-    loadMonthly().then(setMonthly);
-    loadRiskDistribution().then(setRisk);
-    loadStates().then(setStates);
+    Promise.all([loadSummary(), loadFunnel(), loadMonthly(), loadRiskDistribution(), loadStates()])
+      .then(([s, f, m, r, st]) => { setSummary(s); setFunnel(f); setMonthly(m); setRisk(r); setStates(st); });
   }, []);
+
+  // Auto-generated insight
+  const insight = useMemo(() => {
+    if (!monthly || !states) return '';
+    const sorted = [...monthly].sort((a, b) => b.total - a.total);
+    const peak = sorted[0];
+    const trough = sorted[sorted.length - 1];
+    const peakLabel = formatMonth(peak.month);
+    const troughLabel = formatMonth(trough.month);
+    const ratio = ((peak.total / trough.total - 1) * 100).toFixed(0);
+    const top3 = states.slice(0, 3).map(s => s.state).join(', ');
+    const top3Pct = ((states.slice(0, 3).reduce((s, d) => s + d.total, 0) / states.reduce((s, d) => s + d.total, 0)) * 100).toFixed(0);
+    return `${peakLabel} sees ${ratio}% more fires than ${troughLabel}. Top 3 states (${top3}) account for ${top3Pct}% of all fires.`;
+  }, [monthly, states]);
 
   if (!summary || !funnel || !monthly || !risk || !states) {
     return (
@@ -199,6 +232,7 @@ export default function ExecutiveDashboard() {
         <p className="text-sm text-arc-gray-500 mt-1">
           {formatNumber(summary.totalFires)} residential fire events across {summary.statesCovered} states — Calendar Year 2024
         </p>
+        {insight && <p className="text-xs text-arc-gray-700 mt-2 bg-arc-cream rounded px-3 py-2">{insight}</p>}
       </div>
 
       {/* KPI Cards */}

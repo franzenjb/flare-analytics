@@ -77,7 +77,7 @@ function Dashboard() {
     const mode = searchParams.get('mode') as MetricMode | null;
 
     if (div || reg || ch || state) {
-      setFilters({ division: div, region: reg, chapter: ch, state });
+      setFilters({ division: div, region: reg, chapter: ch, state, county: null });
     }
     if (mode && ['raw', 'perCapita', 'perHousehold'].includes(mode)) {
       setMetricMode(mode);

@@ -10,6 +10,7 @@ export function filterCounties(counties: CountyData[], filters: FilterState): Co
     if (filters.region && c.region !== filters.region) return false;
     if (filters.chapter && c.chapter !== filters.chapter) return false;
     if (filters.state && c.state !== filters.state) return false;
+    if (filters.county && c.fips !== filters.county) return false;
     return true;
   });
 }

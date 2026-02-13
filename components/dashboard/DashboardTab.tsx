@@ -231,7 +231,10 @@ export default function DashboardTab() {
           title="Dashboard"
           subtitle={`${formatNumber(fn.total)} fires across ${fn.countyCount.toLocaleString()} counties — Calendar Year 2024`}
         />
-        {filters.chapter && <ReportButton chapterName={filters.chapter} />}
+        <div className="flex items-center gap-3">
+          {filters.chapter && <ReportButton chapterName={filters.chapter} />}
+          {filters.county && <ReportButton countyFips={filters.county} />}
+        </div>
       </div>
 
       {/* KPI Cards */}

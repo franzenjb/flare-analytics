@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, lazy, Suspense } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
@@ -9,9 +9,12 @@ import { generateSummary } from '@/lib/report-data';
 import { formatNumber, formatPercent, formatCurrency, formatSvi, formatMonth } from '@/lib/format';
 import { CATEGORY_COLORS } from '@/lib/types';
 import SviQuintileChart from '@/components/ui/SviQuintileChart';
+import StaticLocationMap from './StaticLocationMap';
 
-function KpiRow({ label, value, national, higherBetter }: {
-  label: string; value: string; national: string; higherBetter?: boolean;
+const ReportMap = lazy(() => import('./ReportMap'));
+
+function KpiRow({ label, value, national }: {
+  label: string; value: string; national: string;
 }) {
   return (
     <div className="flex items-center justify-between py-1.5 border-b border-gray-100 last:border-0">
@@ -62,7 +65,7 @@ function PeerTable({ peers, entity }: { peers: PeerEntity[]; entity: ReportData 
   );
 }
 
-export default function EntityReport({ report, onClose }: { report: ReportData; onClose: () => void }) {
+export default function EntityReport({ report, onClose }: { report: ReportData; onClose?: () => void }) {
   const summary = useMemo(() => generateSummary(report), [report]);
 
   const chartData = report.monthly.map(d => ({
@@ -71,6 +74,21 @@ export default function EntityReport({ report, onClose }: { report: ReportData; 
     'RC Notification': d.notification,
     'No Notification': d.gap,
   }));
+
+  // FIPS codes for the interactive map
+  const fipsCodes = useMemo(() => new Set(report.counties.map(c => c.fips)), [report.counties]);
+
+  // State codes for the static print map
+  const stateCodes = useMemo(() => {
+    const states = new Set<string>();
+    if (report.state) states.add(report.state);
+    // For chapter reports, collect all states from county names like "Cook, IL"
+    for (const c of report.counties) {
+      const parts = c.name.split(', ');
+      if (parts.length === 2 && parts[1].length === 2) states.add(parts[1]);
+    }
+    return states;
+  }, [report]);
 
   return (
     <div className="fixed inset-0 z-50 bg-white overflow-auto print:static print:overflow-visible">
@@ -84,12 +102,14 @@ export default function EntityReport({ report, onClose }: { report: ReportData; 
           >
             Print / Save PDF
           </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 text-sm font-medium border border-gray-200 rounded text-gray-600 hover:text-gray-900"
-          >
-            Close
-          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="px-4 py-1.5 text-sm font-medium border border-gray-200 rounded text-gray-600 hover:text-gray-900"
+            >
+              Close
+            </button>
+          )}
         </div>
       </div>
 
@@ -138,10 +158,10 @@ export default function EntityReport({ report, onClose }: { report: ReportData; 
               <KpiRow label="Total Fires" value={formatNumber(report.total)} national={`Natl: ${formatNumber(report.national.total)}`} />
               <KpiRow label="RC Care" value={formatNumber(report.care)} national="" />
               <KpiRow label="No Notification (Gap)" value={formatNumber(report.gap)} national="" />
-              <KpiRow label="Care Rate" value={formatPercent(report.careRate)} national={`Natl: ${formatPercent(report.national.careRate)}`} higherBetter />
+              <KpiRow label="Care Rate" value={formatPercent(report.careRate)} national={`Natl: ${formatPercent(report.national.careRate)}`} />
             </div>
             <div>
-              <KpiRow label="Gap Rate" value={formatPercent(report.gapRate)} national={`Natl: ${formatPercent(report.national.gapRate)}`} higherBetter={false} />
+              <KpiRow label="Gap Rate" value={formatPercent(report.gapRate)} national={`Natl: ${formatPercent(report.national.gapRate)}`} />
               <KpiRow label="Avg SVI" value={formatSvi(report.avgSvi)} national={`Natl: ${formatSvi(report.national.avgSvi)}`} />
               <KpiRow label="Fires Per 10K" value={report.firesPer10k.toFixed(1)} national={`Natl: ${report.national.firesPer10k.toFixed(1)}`} />
               <KpiRow label="Counties" value={formatNumber(report.countyCount)} national="" />
@@ -157,7 +177,7 @@ export default function EntityReport({ report, onClose }: { report: ReportData; 
           <div className="grid grid-cols-2 gap-x-8">
             <div>
               <KpiRow label="Population" value={formatNumber(report.population)} national={`Natl: ${formatNumber(report.national.population)}`} />
-              <KpiRow label="Median Income" value={formatCurrency(report.medianIncome)} national={`Natl: ${formatCurrency(report.national.medianIncome)}`} higherBetter />
+              <KpiRow label="Median Income" value={formatCurrency(report.medianIncome)} national={`Natl: ${formatCurrency(report.national.medianIncome)}`} />
               <KpiRow label="Home Value" value={formatCurrency(report.homeValue)} national="" />
               <KpiRow label="Affordability Ratio" value={`${report.affordabilityRatio.toFixed(1)}x`} national="" />
             </div>
@@ -183,7 +203,35 @@ export default function EntityReport({ report, onClose }: { report: ReportData; 
           </section>
         )}
 
-        {/* 6. Monthly Trends */}
+        {/* 6a. Interactive Map (hidden in print) */}
+        {fipsCodes.size > 0 && (
+          <section className="print:hidden">
+            <h2 className="font-[family-name:var(--font-headline)] text-lg font-bold text-gray-900 mb-3">
+              Interactive Map
+            </h2>
+            <Suspense fallback={
+              <div className="h-[400px] animate-pulse bg-gray-100 rounded flex items-center justify-center text-xs text-gray-500">
+                Loading map...
+              </div>
+            }>
+              <ReportMap fipsCodes={fipsCodes} />
+            </Suspense>
+          </section>
+        )}
+
+        {/* 6b. Static Location Map (print only) */}
+        {stateCodes.size > 0 && (
+          <section className="hidden print:block">
+            <h2 className="font-[family-name:var(--font-headline)] text-lg font-bold text-gray-900 mb-2">
+              Service Area
+            </h2>
+            <div className="border border-gray-200 rounded p-2">
+              <StaticLocationMap stateCodes={stateCodes} />
+            </div>
+          </section>
+        )}
+
+        {/* 7. Monthly Trends */}
         <section className="break-before-auto print:break-before-page">
           <h2 className="font-[family-name:var(--font-headline)] text-lg font-bold text-gray-900 mb-3">
             Monthly Trends
@@ -204,7 +252,7 @@ export default function EntityReport({ report, onClose }: { report: ReportData; 
           </div>
         </section>
 
-        {/* 7. Fire Stations */}
+        {/* 8. Fire Stations */}
         <section>
           <h2 className="font-[family-name:var(--font-headline)] text-lg font-bold text-gray-900 mb-3">
             Fire Stations
@@ -225,7 +273,7 @@ export default function EntityReport({ report, onClose }: { report: ReportData; 
           </div>
         </section>
 
-        {/* 8. County Breakdown (for chapters) */}
+        {/* 9. County Breakdown (for chapters) */}
         {report.entityLevel === 'chapter' && report.counties.length > 1 && (
           <section>
             <h2 className="font-[family-name:var(--font-headline)] text-lg font-bold text-gray-900 mb-3">
@@ -259,7 +307,7 @@ export default function EntityReport({ report, onClose }: { report: ReportData; 
           </section>
         )}
 
-        {/* 9. Peer Comparison */}
+        {/* 10. Peer Comparison */}
         {report.peers.length > 0 && (
           <section>
             <h2 className="font-[family-name:var(--font-headline)] text-lg font-bold text-gray-900 mb-3">
@@ -272,7 +320,7 @@ export default function EntityReport({ report, onClose }: { report: ReportData; 
           </section>
         )}
 
-        {/* 10. Data Quality & Sources */}
+        {/* 11. Data Quality & Sources */}
         <section className="border-t border-gray-200 pt-4">
           <h2 className="font-[family-name:var(--font-headline)] text-sm font-bold text-gray-700 mb-2">
             Data Quality & Sources

@@ -2,16 +2,21 @@
 
 import { X } from 'lucide-react';
 import { useFlare } from '@/lib/context';
+import SearchSelect from './SearchSelect';
 
 export default function FilterBar() {
-  const { filters, setFilters, clearFilters, divisionOptions, regionOptions, chapterOptions, stateOptions } = useFlare();
+  const { filters, setFilters, clearFilters, divisionOptions, regionOptions, chapterOptions, stateOptions, countyOptions } = useFlare();
 
-  const hasFilters = filters.division || filters.region || filters.chapter || filters.state;
+  const hasFilters = filters.division || filters.region || filters.chapter || filters.state || filters.county;
 
   const activeChips: { label: string; clear: () => void }[] = [];
   if (filters.division) activeChips.push({ label: filters.division, clear: () => setFilters({ ...filters, division: null, region: null, chapter: null }) });
   if (filters.region) activeChips.push({ label: filters.region, clear: () => setFilters({ ...filters, region: null, chapter: null }) });
-  if (filters.chapter) activeChips.push({ label: filters.chapter, clear: () => setFilters({ ...filters, chapter: null }) });
+  if (filters.chapter) activeChips.push({ label: filters.chapter, clear: () => setFilters({ ...filters, chapter: null, county: null }) });
+  if (filters.county) {
+    const countyLabel = countyOptions.find(c => c.fips === filters.county)?.name || filters.county;
+    activeChips.push({ label: countyLabel, clear: () => setFilters({ ...filters, county: null }) });
+  }
   if (filters.state) activeChips.push({ label: `State: ${filters.state}`, clear: () => setFilters({ ...filters, state: null }) });
 
   return (
@@ -48,6 +53,15 @@ export default function FilterBar() {
         <option value="">All Chapters</option>
         {chapterOptions.map(c => <option key={c} value={c}>{c}</option>)}
       </select>
+
+      {/* County (searchable) */}
+      <SearchSelect
+        options={countyOptions.map(c => ({ label: c.name, value: c.fips }))}
+        value={filters.county}
+        onChange={fips => setFilters({ ...filters, county: fips })}
+        placeholder="All Counties"
+        ariaLabel="Filter by County"
+      />
 
       {/* State */}
       <select

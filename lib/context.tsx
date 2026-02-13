@@ -37,9 +37,10 @@ interface FlareContextValue {
   regionOptions: string[];
   chapterOptions: string[];
   stateOptions: string[];
+  countyOptions: { name: string; fips: string }[];
 }
 
-const EMPTY_FILTERS: FilterState = { division: null, region: null, chapter: null, state: null };
+const EMPTY_FILTERS: FilterState = { division: null, region: null, chapter: null, state: null, county: null };
 
 const EMPTY_NATIONAL: AggregatedRow = {
   name: 'National', level: 'national', total: 0, care: 0, notification: 0, gap: 0,
@@ -122,6 +123,21 @@ export function FlareProvider({ children }: { children: ReactNode }) {
     return Array.from(stateSet).sort();
   }, [counties, filteredCounties]);
 
+  const countyOptions = useMemo(() => {
+    // Show counties from the currently filtered set (excluding county filter itself)
+    const source = counties.filter(c => {
+      if (filters.division && c.division !== filters.division) return false;
+      if (filters.region && c.region !== filters.region) return false;
+      if (filters.chapter && c.chapter !== filters.chapter) return false;
+      if (filters.state && c.state !== filters.state) return false;
+      return true;
+    });
+    return source
+      .filter(c => c.county && c.county.trim() !== '')
+      .map(c => ({ name: `${c.county}, ${c.state}`, fips: c.fips }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [counties, filters.division, filters.region, filters.chapter, filters.state]);
+
   const setFilters = useCallback((newFilters: FilterState) => {
     setFiltersState(prev => {
       // Clear downstream filters when upstream changes
@@ -129,9 +145,14 @@ export function FlareProvider({ children }: { children: ReactNode }) {
       if (prev.division !== next.division) {
         next.region = null;
         next.chapter = null;
+        next.county = null;
       }
       if (prev.region !== next.region) {
         next.chapter = null;
+        next.county = null;
+      }
+      if (prev.chapter !== next.chapter) {
+        next.county = null;
       }
       return next;
     });
@@ -162,7 +183,7 @@ export function FlareProvider({ children }: { children: ReactNode }) {
     metricMode, setMetricMode,
     filteredCounties, national, filteredNational,
     aggregateBy, hierarchy,
-    divisionOptions, regionOptions, chapterOptions, stateOptions,
+    divisionOptions, regionOptions, chapterOptions, stateOptions, countyOptions,
   };
 
   return <FlareContext.Provider value={value}>{children}</FlareContext.Provider>;

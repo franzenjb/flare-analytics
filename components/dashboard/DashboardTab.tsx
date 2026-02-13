@@ -8,7 +8,7 @@ import { Flame, ShieldCheck, AlertTriangle, Activity, Users, TrendingUp } from '
 import { useFlare } from '@/lib/context';
 import { applyMetricMode, metricModeLabel } from '@/lib/aggregator';
 import { bucketBySvi, computeEquityGap } from '@/lib/svi';
-import { formatNumber, formatPercent, formatSvi, formatMonth, formatRate } from '@/lib/format';
+import { formatNumber, formatCompact, formatPercent, formatSvi, formatMonth, formatRate } from '@/lib/format';
 import { CATEGORY_COLORS } from '@/lib/types';
 import SectionHeader from '@/components/ui/SectionHeader';
 import KpiCard from '@/components/ui/KpiCard';
@@ -259,7 +259,7 @@ export default function DashboardTab() {
         />
         <KpiCard
           label="Population"
-          value={formatNumber(fn.population)}
+          value={formatCompact(fn.population)}
           subtext={`${fn.countyCount} counties`}
           icon={Users}
         />

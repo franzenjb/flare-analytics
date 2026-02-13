@@ -1,7 +1,10 @@
 """
 FLARE Analytics Data Pipeline
 Processes Match Map.xlsx (103,400 fire events) into optimized JSON files for the dashboard.
-Enriches each event with Red Cross organizational hierarchy (Chapter/Region/Division) via ZIP code lookup.
+Enriches each event with Red Cross organizational hierarchy (Chapter/Region/Division) via:
+  - ZIP code → county FIPS (from comprehensive ZIP lookup CSV)
+  - County FIPS → Chapter/Region/Division (from ARC Master Geography FY2026)
+  - County FIPS → State (from FIPS prefix, not address parsing)
 """
 
 import openpyxl
@@ -16,6 +19,7 @@ OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 ZIP_LOOKUP_FILE = os.path.join(SCRIPTS_DIR, "zip_to_redcross_comprehensive.csv")
 DEMOGRAPHICS_FILE = os.path.join(SCRIPTS_DIR, "county_demographics.json")
+ARC_MAPPING_FILE = os.path.join(SCRIPTS_DIR, "arc_county_chapter_mapping.json")
 
 # Master Label mapping to short keys
 LABEL_MAP = {
@@ -117,7 +121,7 @@ def extract_state(address):
 
 
 def load_zip_lookup():
-    """Load ZIP → RC hierarchy lookup table. Returns dict keyed by 5-digit ZIP string."""
+    """Load ZIP → county FIPS lookup. Returns dict keyed by 5-digit ZIP string."""
     lookup = {}
     with open(ZIP_LOOKUP_FILE, "r") as f:
         reader = csv.DictReader(f)
@@ -126,11 +130,55 @@ def load_zip_lookup():
             lookup[zip_code] = {
                 "county_fips": row.get("COUNTY_FIPS", "").strip(),
                 "county": row.get("County", "").strip(),
-                "chapter": row.get("Chapter", "").strip(),
-                "region": row.get("Region", "").strip(),
-                "division": row.get("Division", "").strip(),
             }
     return lookup
+
+
+def normalize_arc_name(name):
+    """Normalize ARC entity names: strip 'The ' prefix, 'American Red Cross' → 'ARC'."""
+    if name.startswith("The "):
+        name = name[4:]
+    if name.startswith("American Red Cross"):
+        name = "ARC" + name[len("American Red Cross"):]
+    return name
+
+
+def load_arc_mapping():
+    """Load ARC Master Geography FIPS → Chapter/Region/Division mapping (226 chapters, 3,162 counties)."""
+    with open(ARC_MAPPING_FILE, "r") as f:
+        records = json.load(f)
+    mapping = {}
+    for r in records:
+        mapping[r["fips"]] = {
+            "county": r["county"],
+            "state": r["state"],
+            "chapter": normalize_arc_name(r["chapter"]),
+            "region": r["region"],
+            "division": r["division"],
+        }
+    return mapping
+
+
+# FIPS state prefix → state abbreviation
+FIPS_TO_STATE = {
+    "01": "AL", "02": "AK", "04": "AZ", "05": "AR", "06": "CA", "08": "CO",
+    "09": "CT", "10": "DE", "11": "DC", "12": "FL", "13": "GA", "15": "HI",
+    "16": "ID", "17": "IL", "18": "IN", "19": "IA", "20": "KS", "21": "KY",
+    "22": "LA", "23": "ME", "24": "MD", "25": "MA", "26": "MI", "27": "MN",
+    "28": "MS", "29": "MO", "30": "MT", "31": "NE", "32": "NV", "33": "NH",
+    "34": "NJ", "35": "NM", "36": "NY", "37": "NC", "38": "ND", "39": "OH",
+    "40": "OK", "41": "OR", "42": "PA", "44": "RI", "45": "SC", "46": "SD",
+    "47": "TN", "48": "TX", "49": "UT", "50": "VT", "51": "VA", "53": "WA",
+    "54": "WV", "55": "WI", "56": "WY", "72": "PR", "78": "VI", "66": "GU",
+    "69": "MP", "60": "AS",
+}
+
+
+def state_from_fips(fips):
+    """Derive state abbreviation from FIPS code prefix."""
+    if fips and len(fips) >= 2:
+        return FIPS_TO_STATE.get(fips[:2])
+    return None
 
 
 def load_demographics():
@@ -153,10 +201,14 @@ def extract_zip(row, col_map):
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # Load RC hierarchy lookup + demographics
-    print("Loading ZIP → RC hierarchy lookup...")
+    # Load lookups
+    print("Loading ZIP → county FIPS lookup...")
     zip_lookup = load_zip_lookup()
     print(f"  Loaded {len(zip_lookup):,} ZIP codes")
+
+    print("Loading ARC Master Geography (FIPS → Chapter/Region/Division)...")
+    arc_mapping = load_arc_mapping()
+    print(f"  Loaded {len(arc_mapping):,} counties → {len(set(m['chapter'] for m in arc_mapping.values()))} chapters")
 
     print("Loading county demographics...")
     demographics = load_demographics()
@@ -272,37 +324,52 @@ def main():
         date = parse_date(row[COL["date"]])
         svi = parse_float(row[COL["svi_risk"]])
         dept = str(row[COL["department"]]).strip() if row[COL["department"]] else "Unknown"
-        address = str(row[COL["address"]]) if row[COL["address"]] else ""
-
-        state = extract_state(address)
-
-        # ZIP extraction + RC hierarchy lookup
+        # ZIP extraction → county FIPS → ARC hierarchy
         zip_code = extract_zip(row, COL)
-        hierarchy = zip_lookup.get(zip_code) if zip_code else None
+        zip_info = zip_lookup.get(zip_code) if zip_code else None
         chapter_name = ""
         region_name = ""
         division_name = ""
         county_fips = ""
+        county_name = ""
+        state = ""
 
-        if hierarchy:
+        if zip_info:
+            county_fips = zip_info["county_fips"]
+            county_name = zip_info["county"]
+
+        # Look up hierarchy from ARC Master Geography (authoritative source, 226 chapters)
+        arc_info = arc_mapping.get(county_fips) if county_fips else None
+        if arc_info:
             zip_match_count += 1
-            chapter_name = hierarchy["chapter"]
-            region_name = hierarchy["region"]
-            division_name = hierarchy["division"]
-            county_fips = hierarchy["county_fips"]
-            county_name = hierarchy["county"]
+            chapter_name = arc_info["chapter"]
+            region_name = arc_info["region"]
+            division_name = arc_info["division"]
+            county_name = arc_info["county"] or county_name
+            state = arc_info["state"]
+        elif zip_info:
+            # Fallback: no ARC mapping for this FIPS, derive state from FIPS
+            zip_match_count += 1
+            state = state_from_fips(county_fips) or ""
 
-            # Track county metadata
-            if county_fips and county_fips not in county_meta:
-                county_meta[county_fips] = {
-                    "name": county_name,
-                    "state": state or "",
-                    "chapter": chapter_name,
-                    "region": region_name,
-                    "division": division_name,
-                }
+        # Derive state from FIPS prefix (not address parsing) — always overrides
+        if county_fips:
+            fips_state = state_from_fips(county_fips)
+            if fips_state:
+                state = fips_state
 
-            # Accumulate by org hierarchy
+        # Track county metadata
+        if county_fips and county_fips not in county_meta:
+            county_meta[county_fips] = {
+                "name": county_name,
+                "state": state,
+                "chapter": chapter_name,
+                "region": region_name,
+                "division": division_name,
+            }
+
+        # Accumulate by org hierarchy
+        if county_fips:
             for key, acc in [
                 (county_fips, by_county),
                 (chapter_name, by_chapter),

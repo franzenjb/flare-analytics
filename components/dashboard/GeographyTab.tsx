@@ -5,7 +5,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useFlare } from '@/lib/context';
 import { loadFirePoints, loadStatesTopo, loadCountiesTopo } from '@/lib/data-loader';
 import { parseStatesTopo, parseCountiesTopo, getMetricColor, getLabelColor, LABEL_STATES, STATE_TO_FIPS, type GeoFeature } from '@/lib/geo-utils';
-import { formatNumber, formatPercent, formatSvi } from '@/lib/format';
+import { formatNumber, formatCompact, formatPercent, formatSvi } from '@/lib/format';
 import { bucketBySvi, computeEquityGap } from '@/lib/svi';
 import type { FirePointsData, CountyData } from '@/lib/types';
 import { CATEGORY_COLORS, CATEGORY_LABELS } from '@/lib/types';
@@ -77,7 +77,7 @@ function DetailPanel({ entity, counties, onClose }: {
         <KpiCard label="Fires" value={formatNumber(total)} icon={Flame} sparklineData={[]} />
         <KpiCard label="Care Rate" value={formatPercent(careRate)} icon={ShieldCheck} />
         <KpiCard label="Gap Rate" value={formatPercent(gapRate)} icon={AlertTriangle} highlight />
-        <KpiCard label="Population" value={formatNumber(population)} icon={Activity} />
+        <KpiCard label="Population" value={formatCompact(population)} icon={Activity} />
       </div>
       {quintiles.some(q => q.total > 0) && (
         <div>

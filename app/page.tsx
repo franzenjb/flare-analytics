@@ -12,7 +12,9 @@ import {
   Map,
   TrendingUp,
   MessageSquare,
+  BookOpen,
 } from 'lucide-react';
+import Link from 'next/link';
 
 const DashboardTab = lazy(() => import('@/components/dashboard/DashboardTab'));
 const DataExplorerTab = lazy(() => import('@/components/dashboard/DataExplorerTab'));
@@ -120,6 +122,13 @@ function Dashboard() {
               <span className="font-[family-name:var(--font-data)] text-base font-bold text-arc-black">
                 {filteredNational.total.toLocaleString()} fires · {filteredNational.countyCount.toLocaleString()} counties
               </span>
+              <Link
+                href="/research"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-arc-gray-500 hover:text-arc-black border border-arc-gray-200 rounded hover:border-arc-gray-400 transition-colors"
+              >
+                <BookOpen size={14} />
+                Research
+              </Link>
               <a
                 href="mailto:?subject=FLARE%20Analytics%20—%20Comments%20%2F%20Suggestions"
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-arc-gray-500 hover:text-arc-black border border-arc-gray-200 rounded hover:border-arc-gray-400 transition-colors"
